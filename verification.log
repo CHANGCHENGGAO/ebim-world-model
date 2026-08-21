@@ -1,0 +1,20 @@
+==================================================
+EBiM Task 3 — Environment Verification Report
+Team: world model
+Date: 2026-08-21
+==================================================
+Python       : 3.10.20
+OS           : Darwin arm64
+MuJoCo       : 3.12.0
+numpy        : 2.2.6
+
+[1/2] Compiling scene_100.xml ...
+      OK — bodies=223, geoms=884, meshes=247, textures=20, cams=4
+
+[2/2] Compiling scene_300.xml ...
+      OK — bodies=423, geoms=1284, meshes=247, textures=20, cams=4
+
+[3/3] Simulation smoke test: 200 steps OK
+      scale_weight_kg = 2.7468
+
+ALL CHECKS PASSED — environment is fully operational.
