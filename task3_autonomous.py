@@ -236,6 +236,11 @@ class Task3Controller(Node):
         self.right_state_sub = self.create_subscription(
             JointState, "/isaac/right_joint_states", self._right_state_cb, 10)
 
+        # Vision subscription (YOLO object detection)
+        self.vision_sub = self.create_subscription(
+            JointState, "/vision/object_positions", self._vision_cb, 10)
+        self.vision_active = False
+
         # Current joint states
         self.current_left = {n: 0.0 for n in self.LEFT_ARM_JOINTS}
         self.current_right = {n: 0.0 for n in self.RIGHT_ARM_JOINTS}
@@ -258,7 +263,24 @@ class Task3Controller(Node):
         self.rate = 50.0
         self.pub_timer = self.create_timer(1.0 / self.rate, self._publish)
 
-        self.get_logger().info("Task3Controller v3 initialized (IK + navigation)")
+        self.get_logger().info("Task3Controller v3 initialized (IK + navigation + YOLO vision)")
+
+    def wait_for_vision(self, timeout=10.0):
+        """Wait for YOLO vision data to arrive."""
+        if self.vision_active:
+            return True
+        self.get_logger().info(f"  Waiting for YOLO vision data (timeout={timeout}s)...")
+        start = time.time()
+        while not self.vision_active and time.time() - start < timeout:
+            time.sleep(0.5)
+        if self.vision_active:
+            self.get_logger().info("  Vision data received!")
+            for name, pos in self.item_positions.items():
+                if name not in ("sink_boundary", "ikea_knock_box", "head"):
+                    self.get_logger().info(f"    {name}: ({pos[0]:.2f},{pos[1]:.2f},{pos[2]:.2f})")
+        else:
+            self.get_logger().warn("  Vision timeout, using fallback coordinates")
+        return self.vision_active
 
     # --- State callbacks ---
 
@@ -269,6 +291,24 @@ class Task3Controller(Node):
     def _right_state_cb(self, msg):
         for name, pos in zip(msg.name, msg.position):
             self.current_right[name] = pos
+
+    def _vision_cb(self, msg):
+        """Update item positions from YOLO detections."""
+        if not msg.name:
+            return
+        self.vision_active = True
+        for i, name in enumerate(msg.name):
+            if i * 3 + 2 < len(msg.position):
+                x = msg.position[i * 3]
+                y = msg.position[i * 3 + 1]
+                z = msg.position[i * 3 + 2]
+                if name in self.item_positions:
+                    old = self.item_positions[name]
+                    self.item_positions[name] = [float(x), float(y), float(z)]
+                    self.get_logger().info(
+                        f"  Vision: {name} at ({x:.2f},{y:.2f},{z:.2f}) "
+                        f"(was {old[0]:.2f},{old[1]:.2f},{old[2]:.2f})"
+                    )
 
     # --- Publishing ---
 
@@ -763,6 +803,9 @@ def main():
     spin_thread = threading.Thread(target=lambda: rclpy.spin(controller), daemon=True)
     spin_thread.start()
     time.sleep(2.0)
+
+    # Wait for YOLO vision data
+    controller.wait_for_vision(timeout=15.0)
 
     results = []
     stages = [1, 2, 3, 4] if args.stage == "all" else [int(args.stage)]
