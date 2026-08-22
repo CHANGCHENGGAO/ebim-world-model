@@ -274,6 +274,9 @@ class Task3Controller(Node):
 
         # Item positions (updated as items are moved)
         self.item_positions = {k: list(v) for k, v in INITIAL_OBJECT_POSITIONS.items()}
+        # Items we've manually placed — trust these positions over vision
+        # (prevents YOLO false positives from teleporting objects across the room)
+        self._placed_items = set()
 
         # Publishing rate
         self.rate = 50.0
@@ -323,6 +326,14 @@ class Task3Controller(Node):
                 z = msg.position[i * 3 + 2]
                 if name in self.item_positions:
                     old = self.item_positions[name]
+                    # For manually-placed items, only accept small vision updates
+                    # (prevents false positives from teleporting items across the room)
+                    if name in self._placed_items:
+                        dx = float(x) - old[0]
+                        dy = float(y) - old[1]
+                        dist = (dx**2 + dy**2) ** 0.5
+                        if dist > 0.30:  # 30cm threshold — anything more is a teleport
+                            continue
                     self.item_positions[name] = [float(x), float(y), float(z)]
                     self.get_logger().info(
                         f"  Vision: {name} at ({x:.2f},{y:.2f},{z:.2f}) "
@@ -539,6 +550,7 @@ class Task3Controller(Node):
         time.sleep(0.5)
         self.move_arm_to_xyz(arm, tx, ty, tz + 0.15, duration=1.0)
         self.item_positions[obj_name] = list(place_pos)
+        self._placed_items.add(obj_name)
         return True
 
     def carry_position(self, arm="both"):
