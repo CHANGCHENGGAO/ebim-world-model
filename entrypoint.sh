@@ -8,18 +8,22 @@ export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export FASTDDS_BUILTIN_TRANSPORTS=UDPv4
 export ROS_HOME=/tmp/isaac_ros_home
 
+# Isaac Sim uses Python 3.11; ROS2 Jazzy ships rclpy for 3.12.
+# Use the internal rclpy bundled with the isaacsim.ros2.bridge extension.
+export LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib:${LD_LIBRARY_PATH}
+export PYTHONPATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/rclpy:${PYTHONPATH}
+
 cd /workspace/benchmark/task3_isaacsim/scripts
 
 echo "Starting EBiM Task 3 environment..."
 echo "Arguments: $@"
 
-# Start Isaac Sim Task 3 scene
+# Start Isaac Sim Task 3 scene (dynamic beans enabled by default)
 /isaac-sim/python.sh scene_room.py \
     --gripper "${GRIPPER:-robotiq}" \
     --robot-usd /workspace/benchmark/task1_isaacsim/assets/Robotiq_2f_85_with_d405_mobile_fr3_duo_v0_2.usd \
     --room-usd /workspace/benchmark/assets/robot_room.usd \
     --head-placement "${HEAD_PLACEMENT:-A}" \
-    --no-dynamic-beans \
     --headless \
     --franka-root /workspace/benchmark/task1_isaacsim \
     --physics-hz 120 \

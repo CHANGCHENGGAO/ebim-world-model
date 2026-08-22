@@ -44,7 +44,8 @@ WORKDIR /workspace
 
 COPY . /workspace/benchmark/
 
-ENV PYTHONPATH=/workspace/benchmark/task1_isaacsim/scripts:/workspace/benchmark/task1_isaacsim/services/browser_controller:/workspace/benchmark/scripts/scenes:/workspace/benchmark/scripts/common:/workspace/benchmark/scripts/evaluation/task3:${PYTHONPATH}
+ENV LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib:${LD_LIBRARY_PATH}
+ENV PYTHONPATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/rclpy:/workspace/benchmark/task1_isaacsim/scripts:/workspace/benchmark/task1_isaacsim/services/browser_controller:/workspace/benchmark/scripts/scenes:/workspace/benchmark/scripts/common:/workspace/benchmark/scripts/evaluation/task3:${PYTHONPATH}
 
 RUN chmod +x /workspace/benchmark/task3_isaacsim/scripts/run_isaacsim_teleop.sh \
     /workspace/benchmark/task3_isaacsim/scripts/run_helper_containers.sh
