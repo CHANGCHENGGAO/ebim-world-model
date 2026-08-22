@@ -42,15 +42,17 @@ class LLMPlanner:
         model_path: Optional[str] = None,
         timeout: float = 5.0,
         n_ctx: int = 2048,
-        n_gpu_layers: int = 0,
+        n_gpu_layers: Optional[int] = None,
         node=None,
     ):
         self.model_path = model_path or os.environ.get(
             "LLM_MODEL_PATH",
-            "/root/models/qwen2.5-7b-instruct-q4_k_m.gguf"
+            "/root/models/qwen2.5-3b-instruct-q4_k_m.gguf"
         )
         self.timeout = timeout
-        self.n_ctx = n_ctx
+        self.n_ctx = int(os.environ.get("LLM_N_CTX", n_ctx))
+        if n_gpu_layers is None:
+            n_gpu_layers = int(os.environ.get("LLM_N_GPU_LAYERS", -1))
         self.n_gpu_layers = n_gpu_layers
         self.node = node
         self._model = None

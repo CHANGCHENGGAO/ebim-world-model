@@ -10,9 +10,9 @@ export ROS_HOME=/tmp/isaac_ros_home
 
 # Optional LLM / Diffusion policy config
 # Set these if using --policy llm/diffusion/hybrid
-export LLM_MODEL_PATH=${LLM_MODEL_PATH:-/root/models/qwen2.5-7b-instruct-q4_k_m.gguf}
+export LLM_MODEL_PATH=${LLM_MODEL_PATH:-/root/models/qwen2.5-3b-instruct-q4_k_m.gguf}
 export LLM_N_CTX=${LLM_N_CTX:-2048}
-export LLM_N_GPU_LAYERS=${LLM_N_GPU_LAYERS:-0}
+export LLM_N_GPU_LAYERS=${LLM_N_GPU_LAYERS:--1}
 export DIFFUSION_MODEL_PATH=${DIFFUSION_MODEL_PATH:-}
 export POLICY_TIMEOUT=${POLICY_TIMEOUT:-5.0}
 

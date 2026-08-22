@@ -22,6 +22,7 @@ Stage 4: Clean Up — return utensils to sink region
 
 import argparse
 import math
+import os
 import time
 import threading
 import numpy as np
@@ -225,9 +226,10 @@ class Task3Controller(Node):
         try:
             from policy_manager import PolicyManager
             self.policy_mgr = PolicyManager(
-                policy_mode=policy_mode,
-                node=self,
-            )
+                    policy_mode=policy_mode,
+                    timeout=float(os.environ.get("POLICY_TIMEOUT", "5.0")),
+                    node=self,
+                )
             self.get_logger().info(f"Policy manager: mode={policy_mode}")
         except Exception as e:
             self.get_logger().warn(f"Policy manager init failed: {e} — using hardcoded only")
@@ -590,14 +592,39 @@ class Task3Controller(Node):
         ]
 
         moved = 0
-        for obj_name, place_pos, arm in dining_targets:
+        for obj_name, place_pos, hardcoded_arm in dining_targets:
             # Navigate to kitchen for pickup
             self.navigate_to("kitchen")
             time.sleep(1.0)
             self.go_home(duration=1.0)
 
+            # Ask LLM which arm to use (with hardcoded fallback)
+            arm = hardcoded_arm
+            if self.policy_mgr is not None and self.policy_mgr._llm_available:
+                state = {
+                    "item_positions": {k: v for k, v in self.item_positions.items()},
+                    "base_pos": [float(self.base_pos[0]), float(self.base_pos[1])],
+                    "base_yaw": float(self.base_yaw),
+                    "gripper": {"left": self.left_gripper, "right": self.right_gripper},
+                }
+                goal = {
+                    "description": f"抓取{obj_name}并搬到餐厅。应该用左手还是右手？",
+                    "available_objects": [obj_name],
+                }
+                plan = self.policy_mgr.plan_action(
+                    state, goal,
+                    hardcoded_plan_fn=lambda s, g: {"action": "grasp", "arm": hardcoded_arm, "target_object": obj_name},
+                )
+                llm_arm = plan.get("arm", hardcoded_arm)
+                if llm_arm in ("left", "right"):
+                    arm = llm_arm
+                self.get_logger().info(
+                    f"  Arm selection: {arm} (source={plan.get('source', '?')}, "
+                    f"time={plan.get('time_used', 0):.2f}s)"
+                )
+
             # Grasp at kitchen
-            self.get_logger().info(f"  Moving {obj_name} to dining area")
+            self.get_logger().info(f"  Moving {obj_name} to dining area with {arm} arm")
             if not self.grasp_only(obj_name, arm=arm):
                 self.get_logger().warn(f"  Failed to grasp {obj_name}, skipping")
                 continue
