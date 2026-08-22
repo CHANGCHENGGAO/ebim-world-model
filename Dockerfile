@@ -40,6 +40,11 @@ RUN pip3 install --no-cache-dir \
     scipy \
     matplotlib
 
+# Optional: llama-cpp-python for local LLM inference (commented out by default
+# to keep image small; uncomment if LLM policy is needed).
+# Requires ~2GB additional disk space + model file.
+# RUN pip3 install --no-cache-dir llama-cpp-python
+
 WORKDIR /workspace
 
 COPY . /workspace/benchmark/

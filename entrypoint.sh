@@ -8,6 +8,14 @@ export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export FASTDDS_BUILTIN_TRANSPORTS=UDPv4
 export ROS_HOME=/tmp/isaac_ros_home
 
+# Optional LLM / Diffusion policy config
+# Set these if using --policy llm/diffusion/hybrid
+export LLM_MODEL_PATH=${LLM_MODEL_PATH:-/root/models/qwen2.5-7b-instruct-q4_k_m.gguf}
+export LLM_N_CTX=${LLM_N_CTX:-2048}
+export LLM_N_GPU_LAYERS=${LLM_N_GPU_LAYERS:-0}
+export DIFFUSION_MODEL_PATH=${DIFFUSION_MODEL_PATH:-}
+export POLICY_TIMEOUT=${POLICY_TIMEOUT:-5.0}
+
 # Isaac Sim uses Python 3.11; ROS2 Jazzy ships rclpy for 3.12.
 # Use the internal rclpy bundled with the isaacsim.ros2.bridge extension.
 export LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib:${LD_LIBRARY_PATH}

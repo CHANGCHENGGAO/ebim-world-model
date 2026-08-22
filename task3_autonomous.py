@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-EBiM Competition Task 3 - Autonomous Four-Stage Controller v3
+EBiM Competition Task 3 - Autonomous Four-Stage Controller v4
 
-Key improvements over v2:
+Key improvements over v3:
 1. Fixed gripper values (open=0.0, closed=0.8) and correct topic routing
 2. Mobile base navigation using pedal state (FWD/BACK/A/B/A+C/B+C)
 3. Dynamic base position tracking via dead reckoning
@@ -11,6 +11,8 @@ Key improvements over v2:
 6. State tracking for item positions across stages
 7. Error recovery and retry logic
 8. Proper stage transitions with navigation
+9. YOLO + depth-based vision detection (optional)
+10. LLM + Diffusion Policy optional modules with hardcoded fallback
 
 Stage 1: Table Setup — move 5 dining items from Kitchen to Dining Area
 Stage 2: Feed — scoop beans, hold spoon at feeding pose >=3s, return beans
@@ -214,8 +216,22 @@ class Task3Controller(Node):
     LEFT_GRIPPER_NAME = "left_robotiq_opening"
     RIGHT_GRIPPER_NAME = "right_robotiq_opening"
 
-    def __init__(self):
-        super().__init__("task3_autonomous_v3")
+    def __init__(self, policy_mode: str = "hardcoded"):
+        super().__init__("task3_autonomous_v4")
+        self.policy_mode = policy_mode
+
+        # Policy manager (LLM + Diffusion + hardcoded fallback)
+        self.policy_mgr = None
+        try:
+            from policy_manager import PolicyManager
+            self.policy_mgr = PolicyManager(
+                policy_mode=policy_mode,
+                node=self,
+            )
+            self.get_logger().info(f"Policy manager: mode={policy_mode}")
+        except Exception as e:
+            self.get_logger().warn(f"Policy manager init failed: {e} — using hardcoded only")
+            self.policy_mode = "hardcoded"
 
         # Arm command publishers (direct to Isaac)
         self.left_arm_pub = self.create_publisher(JointState, "/isaac/left_joint_commands", 10)
@@ -263,7 +279,10 @@ class Task3Controller(Node):
         self.rate = 50.0
         self.pub_timer = self.create_timer(1.0 / self.rate, self._publish)
 
-        self.get_logger().info("Task3Controller v3 initialized (IK + navigation + YOLO vision)")
+        self.get_logger().info(
+            f"Task3Controller v4 initialized (IK + navigation + YOLO vision + "
+            f"policy={policy_mode})"
+        )
 
     def wait_for_vision(self, timeout=10.0):
         """Wait for YOLO vision data to arrive."""
@@ -759,11 +778,17 @@ STAGE_MAP = {
 
 
 def main():
-    parser = argparse.ArgumentParser(description="EBiM Task 3 Autonomous Controller v3")
+    parser = argparse.ArgumentParser(description="EBiM Task 3 Autonomous Controller v4")
     parser.add_argument("--stage", type=str, default="all",
                         choices=["1", "2", "3", "4", "all"])
     parser.add_argument("--dry-run", action="store_true",
                         help="Test IK without ROS connection")
+    parser.add_argument("--policy", type=str, default="hardcoded",
+                        choices=["hardcoded", "llm", "diffusion", "hybrid"],
+                        help="Policy mode: hardcoded (default, safest), "
+                             "llm (LLM planning + IK execution), "
+                             "diffusion (hardcoded plan + diffusion execution), "
+                             "hybrid (LLM + diffusion, with fallback)")
     args = parser.parse_args()
 
     if args.dry_run:
@@ -798,7 +823,7 @@ def main():
         return
 
     rclpy.init()
-    controller = Task3Controller()
+    controller = Task3Controller(policy_mode=args.policy)
 
     spin_thread = threading.Thread(target=lambda: rclpy.spin(controller), daemon=True)
     spin_thread.start()
@@ -827,6 +852,10 @@ def main():
     for r in results:
         print(f"  Stage {r['stage']}: {r['status']} ({r.get('score', 0)}/{r.get('max_score', 0)})")
     print(f"{'='*60}")
+
+    # Print policy statistics
+    if controller.policy_mgr is not None:
+        controller.policy_mgr.print_stats()
 
     controller.go_home(duration=2.0)
     controller.open_gripper("both")
