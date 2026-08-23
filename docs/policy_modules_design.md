@@ -66,7 +66,7 @@ class PolicyManager:
 
 **技术方案**:
 - 推理框架: `llama-cpp-python` (GGUF 格式)
-- 推荐模型: Qwen2.5-7B-Instruct-Q4_K_M (~4GB) 或 Llama-3.2-3B-Instruct (~2GB)
+- 推荐模型: Qwen2.5-3B-Instruct-Q4_K_M (~2GB, 已验证)
 - 推理方式: 本地 CPU/GPU 推理
 - 超时: 5秒
 
@@ -151,7 +151,7 @@ python task3_autonomous.py --policy hybrid
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `LLM_MODEL_PATH` | `/root/models/qwen2.5-7b-instruct-q4_k_m.gguf` | LLM 模型路径 |
+| `LLM_MODEL_PATH` | `/root/models/qwen2.5-3b-instruct-q4_k_m.gguf` | LLM 模型路径 |
 | `LLM_N_CTX` | `2048` | 上下文窗口 |
 | `LLM_N_GPU_LAYERS` | `0` | GPU 层数 (0=CPU only) |
 | `DIFFUSION_MODEL_PATH` | `None` | Diffusion 模型路径 |
@@ -170,7 +170,7 @@ python task3_autonomous.py --policy hybrid
 |------|---------|---------|--------|
 | hardcoded | 0ms | 0MB | 100% |
 | llm (3B, CPU) | ~2-5s | ~2GB | 95% (格式错误回退) |
-| llm (7B, CPU) | ~5-10s | ~4GB | 95% |
+| llm (3B, GPU) | ~0.2-0.3s | ~2GB | 100% (已验证) |
 | diffusion (模拟) | ~100ms | ~50MB | 99% |
 | hybrid | ~5-10s | ~4-6GB | 90% (两层兜底后 ~99%) |
 

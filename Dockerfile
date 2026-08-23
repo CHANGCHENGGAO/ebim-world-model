@@ -20,9 +20,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vim \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -sSL https://raw.githubusercontent.com/ros2/ros2/jazzy/ros2.repos \
-    -o /tmp/ros2.repos || true
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-ros-base \
     ros-jazzy-sensor-msgs \

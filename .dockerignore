@@ -1,0 +1,10 @@
+.git
+.gitignore
+.DS_Store
+*.pyc
+__pycache__
+*.pyo
+*.egg-info
+docs/
+*.log
+.trae-cn/
