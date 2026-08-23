@@ -3,6 +3,7 @@
 **Track**: Task 3 — Assisted Living & Feeding
 **Submission type**: Repository Submission (Dockerfile + autonomous controller)
 **Score**: 18/18 (development grading) / 16/16 (official)
+**Completion time**: 5 min 33 sec (optimized from 9 min 00 sec, −38%)
 
 ---
 
@@ -12,8 +13,9 @@
 |---|---|
 | `Dockerfile` | Docker image with Isaac Sim 5.1.0 + ROS2 Jazzy for Task 3 |
 | `entrypoint.sh` | Container entrypoint — starts Isaac Sim, ROS republisher, and browser controller |
-| `task3_autonomous.py` | Autonomous four-stage controller with YOLO vision, bimanual coordination, safety monitoring, and LLM/Diffusion Policy optional modules |
-| `vision_callback.py` | YOLOv8 object detection with Isaac Sim camera integration |
+| `task3_autonomous.py` | Autonomous four-stage controller v4 with YOLO vision, bimanual coordination, safety monitoring, ground-truth bean counting, and LLM/Diffusion Policy optional modules |
+| `vision_callback.py` | YOLOv8 object detection + ground-truth bean stage query + Isaac Sim camera integration |
+| `bean_counter.py` | Ground-truth bean counting via Isaac Sim stage prim traversal (matches official eval method) |
 | `policy_manager.py` | Unified policy entry point with 4-level fallback chain |
 | `llm_planner.py` | Local LLM planner (Qwen2.5-3B GGUF, llama-cpp-python, GPU-accelerated) |
 | `diffusion_policy.py` | Diffusion Policy trajectory generation framework |
