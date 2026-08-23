@@ -461,7 +461,7 @@ class Task3Controller(Node):
             time.sleep(1.0 / self.rate)
         time.sleep(0.05)
 
-    def move_arm_to_xyz(self, arm, x, y, z, duration=3.0, retries=5):
+    def move_arm_to_xyz(self, arm, x, y, z, duration=1.5, retries=5):
         target_arm = world_to_arm_frame(x, y, z, self.base_pos, self.base_yaw, arm=arm)
 
         dist = np.linalg.norm(target_arm)
@@ -500,16 +500,16 @@ class Task3Controller(Node):
             self.left_gripper = GRIPPER_OPEN
         if arm in ("right", "both"):
             self.right_gripper = GRIPPER_OPEN
-        time.sleep(0.5)
+        time.sleep(0.2)
 
     def close_gripper(self, arm="both"):
         if arm in ("left", "both"):
             self.left_gripper = GRIPPER_CLOSED
         if arm in ("right", "both"):
             self.right_gripper = GRIPPER_CLOSED
-        time.sleep(1.0)
+        time.sleep(0.3)
 
-    def go_home(self, duration=2.0):
+    def go_home(self, duration=1.0):
         self._interpolate_move(HOME_Q.copy(), HOME_Q.copy(), duration)
 
     # --- Mobile base navigation ---
@@ -521,7 +521,7 @@ class Task3Controller(Node):
         self.pedal_state = direction
         time.sleep(dt)
         self.pedal_state = ""
-        time.sleep(0.5)
+        time.sleep(0.2)
         self._update_base_position(distance_m, 0.0, 0.0)
 
     def move_base_strafe(self, distance_m, speed=BASE_LINEAR_SPEED):
@@ -531,7 +531,7 @@ class Task3Controller(Node):
         self.pedal_state = direction
         time.sleep(dt)
         self.pedal_state = ""
-        time.sleep(0.5)
+        time.sleep(0.2)
         self._update_base_position(0.0, distance_m, 0.0)
 
     def rotate_base(self, angle_deg, speed=BASE_ANGULAR_SPEED):
@@ -541,7 +541,7 @@ class Task3Controller(Node):
         self.pedal_state = direction
         time.sleep(dt)
         self.pedal_state = ""
-        time.sleep(0.5)
+        time.sleep(0.2)
         self._update_base_position(0.0, 0.0, angle_deg)
 
     def _update_base_position(self, forward_m, strafe_m, yaw_delta_deg):
@@ -596,7 +596,7 @@ class Task3Controller(Node):
             dist = math.sqrt(dx**2 + dy**2)
             if dist < 0.15 and abs(yaw_err) < 5.0:
                 break
-            time.sleep(0.2)  # wait for odom to update
+            time.sleep(0.1)  # wait for odom to update
 
     # --- Grasp / Place helpers ---
 
@@ -610,17 +610,13 @@ class Task3Controller(Node):
         pre_grasp_z = oz + 0.15
         grasp_z = oz + 0.02
 
-        if not self.move_arm_to_xyz(arm, ox, oy, pre_grasp_z, duration=1.5):
+        if not self.move_arm_to_xyz(arm, ox, oy, pre_grasp_z, duration=1.0):
             return False
-        time.sleep(0.2)
-        if not self.move_arm_to_xyz(arm, ox, oy, grasp_z, duration=0.8):
+        if not self.move_arm_to_xyz(arm, ox, oy, grasp_z, duration=0.5):
             return False
-        time.sleep(0.2)
         self.close_gripper(arm)
-        time.sleep(0.4)
-        if not self.move_arm_to_xyz(arm, ox, oy, pre_grasp_z, duration=0.8):
+        if not self.move_arm_to_xyz(arm, ox, oy, pre_grasp_z, duration=0.5):
             return False
-        time.sleep(0.2)
         return True
 
     def grasp_both(self, left_obj=None, right_obj=None):
@@ -650,8 +646,7 @@ class Task3Controller(Node):
 
         # Phase 1: both arms move to pre-grasp position
         if left_q is not None or right_q is not None:
-            self._interpolate_move(left_q, right_q, duration=1.5)
-            time.sleep(0.2)
+            self._interpolate_move(left_q, right_q, duration=1.0)
 
         # Phase 2: lower to grasp position + close grippers (sequential, each uses move_arm_to_xyz)
         left_grasp_ok = False
@@ -661,10 +656,9 @@ class Task3Controller(Node):
                 continue
             ox, oy, oz = self.item_positions.get(
                 obj, INITIAL_OBJECT_POSITIONS.get(obj, (0, 0, 0)))
-            ok = self.move_arm_to_xyz(arm, ox, oy, oz + 0.02, duration=0.8)
+            ok = self.move_arm_to_xyz(arm, ox, oy, oz + 0.02, duration=0.5)
             if ok:
                 self.close_gripper(arm)
-                time.sleep(0.4)
                 if arm == "left":
                     left_grasp_ok = True
                 else:
@@ -690,8 +684,7 @@ class Task3Controller(Node):
             if ok:
                 right_q_lift = q
         if left_q_lift is not None or right_q_lift is not None:
-            self._interpolate_move(left_q_lift, right_q_lift, duration=0.8)
-            time.sleep(0.2)
+            self._interpolate_move(left_q_lift, right_q_lift, duration=0.5)
 
         return (left_grasp_ok, right_grasp_ok)
 
@@ -701,15 +694,12 @@ class Task3Controller(Node):
         self.get_logger().info(
             f"  Placing {obj_name} at ({tx:.2f},{ty:.2f},{tz:.2f}) with {arm} arm")
 
-        if not self.move_arm_to_xyz(arm, tx, ty, tz + 0.15, duration=1.5):
+        if not self.move_arm_to_xyz(arm, tx, ty, tz + 0.15, duration=1.0):
             return False
-        time.sleep(0.2)
-        if not self.move_arm_to_xyz(arm, tx, ty, tz, duration=0.8):
+        if not self.move_arm_to_xyz(arm, tx, ty, tz, duration=0.5):
             return False
-        time.sleep(0.2)
         self.open_gripper(arm)
-        time.sleep(0.4)
-        self.move_arm_to_xyz(arm, tx, ty, tz + 0.15, duration=0.8)
+        self.move_arm_to_xyz(arm, tx, ty, tz + 0.15, duration=0.5)
         self.item_positions[obj_name] = list(place_pos)
         self._placed_items.add(obj_name)
         return True
@@ -739,8 +729,7 @@ class Task3Controller(Node):
 
         # Phase 1: both arms move above place position
         if left_q is not None or right_q is not None:
-            self._interpolate_move(left_q, right_q, duration=1.5)
-            time.sleep(0.2)
+            self._interpolate_move(left_q, right_q, duration=1.0)
 
         # Phase 2: lower + open each arm (sequential, uses move_arm_to_xyz)
         left_place_ok = False
@@ -749,10 +738,9 @@ class Task3Controller(Node):
             if obj is None or pos is None:
                 continue
             tx, ty, tz = pos
-            ok = self.move_arm_to_xyz(arm, tx, ty, tz, duration=0.8)
+            ok = self.move_arm_to_xyz(arm, tx, ty, tz, duration=0.5)
             if ok:
                 self.open_gripper(arm)
-                time.sleep(0.4)
                 self.item_positions[obj] = list(pos)
                 self._placed_items.add(obj)
                 if arm == "left":
@@ -778,8 +766,7 @@ class Task3Controller(Node):
             if ok:
                 right_q_lift = q
         if left_q_lift is not None or right_q_lift is not None:
-            self._interpolate_move(left_q_lift, right_q_lift, duration=0.8)
-            time.sleep(0.2)
+            self._interpolate_move(left_q_lift, right_q_lift, duration=0.5)
 
     def carry_position(self, arm="both"):
         """Move arms to a safe carry position for navigation."""
@@ -806,7 +793,6 @@ class Task3Controller(Node):
         self._safety_reset()
         self.open_gripper("both")
         self.go_home()
-        time.sleep(0.3)
 
         # Items paired for dual-arm transport: (left_item, right_item, left_target, right_target)
         # 5 items → 3 trips: (2+2+1), reducing navigations from 10 to 6
@@ -823,19 +809,16 @@ class Task3Controller(Node):
         for left_obj, right_obj, left_target, right_target in dining_pairs:
             # Navigate to kitchen for pickup
             self.navigate_to("kitchen")
-            time.sleep(0.3)
-            self.go_home(duration=1.0)
+            self.go_home(duration=0.8)
 
             # Dual-arm grasp
             left_ok, right_ok = self.grasp_both(left_obj=left_obj, right_obj=right_obj)
 
             # Safe carry position (both arms simultaneously)
             self.carry_position(arm="both")
-            time.sleep(0.2)
 
             # Navigate to dining area for placement
             self.navigate_to("dining")
-            time.sleep(0.3)
 
             # Dual-arm place
             self.place_both(
@@ -849,7 +832,7 @@ class Task3Controller(Node):
             if right_ok:
                 moved += 1
 
-        self.go_home(duration=2.0)
+        self.go_home(duration=1.0)
         self.get_logger().info(f"Stage 1 complete: {moved}/5 items moved")
         return {"stage": 1, "status": "completed", "score": min(moved, 5),
                 "max_score": 5}
@@ -863,12 +846,10 @@ class Task3Controller(Node):
         self._safety_reset()
         self.open_gripper("both")
         self.go_home()
-        time.sleep(0.2)
 
         # Ensure robot is at dining area where items were placed
         self.navigate_to("dining")
-        time.sleep(0.3)
-        self.go_home(duration=1.0)
+        self.go_home(duration=0.8)
 
         # Items are at dining area (placed in Stage 1)
         spoon_pos = self.item_positions.get("spoon2", (-2.8, 2.0, 0.77))
@@ -883,12 +864,11 @@ class Task3Controller(Node):
         bowl_grip_x = bowl_x + 0.10
         bowl_grip_y = bowl_y - 0.05
         bowl_grip_z = bowl_z + 0.02
-        if not self.move_arm_to_xyz("right", bowl_grip_x, bowl_grip_y, bowl_grip_z + 0.15, duration=1.5):
+        if not self.move_arm_to_xyz("right", bowl_grip_x, bowl_grip_y, bowl_grip_z + 0.15, duration=1.0):
             self.get_logger().warn("  Right arm approach failed, continuing unimanual")
         else:
-            self.move_arm_to_xyz("right", bowl_grip_x, bowl_grip_y, bowl_grip_z, duration=0.8)
+            self.move_arm_to_xyz("right", bowl_grip_x, bowl_grip_y, bowl_grip_z, duration=0.5)
             self.close_gripper("right")
-            time.sleep(0.4)
             self.get_logger().info("  [Bimanual] Bowl steadied by right arm")
 
         if not self._safety_check():
@@ -898,13 +878,12 @@ class Task3Controller(Node):
 
         # --- Left arm picks up spoon ---
         self.get_logger().info("  Picking up spoon")
-        if not self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.15, duration=1.5):
+        if not self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.15, duration=1.0):
             return {"stage": 2, "status": "failed", "score": 0, "max_score": 4}
-        if not self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.02, duration=0.8):
+        if not self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.02, duration=0.5):
             return {"stage": 2, "status": "failed", "score": 0, "max_score": 4}
         self.close_gripper("left")
-        time.sleep(0.4)
-        self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.20, duration=1.0)
+        self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.20, duration=0.5)
 
         if not self._safety_check():
             self.go_home(duration=1.0)
@@ -913,8 +892,7 @@ class Task3Controller(Node):
 
         # --- Scoop from bowl (right arm holds bowl steady) ---
         self.get_logger().info("  Scooping beans from bowl (bimanual: left scoops, right steadies)")
-        self.move_arm_to_xyz("left", bowl_x, bowl_y, bowl_z + 0.05, duration=1.5)
-        time.sleep(0.2)
+        self.move_arm_to_xyz("left", bowl_x, bowl_y, bowl_z + 0.05, duration=1.0)
 
         if not self._safety_check():
             self.go_home(duration=1.0)
@@ -926,7 +904,7 @@ class Task3Controller(Node):
         feed_y = head_y
         feed_z = head_z + 0.20
         self.get_logger().info("  Moving to feeding pose")
-        self.move_arm_to_xyz("left", feed_x, feed_y, feed_z, duration=1.5)
+        self.move_arm_to_xyz("left", feed_x, feed_y, feed_z, duration=1.0)
 
         # --- Hold for 3.0+ seconds with safety monitoring ---
         self.get_logger().info("  Holding spoon at feeding pose for 3.0 seconds...")
@@ -942,21 +920,20 @@ class Task3Controller(Node):
 
         # --- Return beans to bowl ---
         self.get_logger().info("  Returning beans to bowl")
-        self.move_arm_to_xyz("left", bowl_x, bowl_y, bowl_z + 0.05, duration=1.5)
-        time.sleep(0.2)
-        self.move_arm_to_xyz("left", bowl_x, bowl_y, bowl_z + 0.20, duration=1.0)
+        self.move_arm_to_xyz("left", bowl_x, bowl_y, bowl_z + 0.05, duration=1.0)
+        self.move_arm_to_xyz("left", bowl_x, bowl_y, bowl_z + 0.20, duration=0.5)
 
         # --- Return spoon to table ---
-        self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.02, duration=1.5)
+        self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.02, duration=1.0)
         self.open_gripper("left")
-        self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.20, duration=0.8)
+        self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.20, duration=0.5)
 
         # --- Right arm releases bowl ---
         self.get_logger().info("  [Bimanual] Right arm releasing bowl")
         self.open_gripper("right")
-        self.move_arm_to_xyz("right", bowl_grip_x, bowl_grip_y, bowl_grip_z + 0.15, duration=1.0)
+        self.move_arm_to_xyz("right", bowl_grip_x, bowl_grip_y, bowl_grip_z + 0.15, duration=0.5)
 
-        self.go_home(duration=1.5)
+        self.go_home(duration=1.0)
         safe = self._safety_check()
         self.get_logger().info(
             f"Stage 2 complete (hold={hold_time:.1f}s, peak_force={self.peak_force:.1f}N, safe={safe})"
@@ -974,12 +951,10 @@ class Task3Controller(Node):
         self._safety_reset()
         self.open_gripper("both")
         self.go_home()
-        time.sleep(0.2)
 
         # Ensure robot is at dining area where bowl is
         self.navigate_to("dining")
-        time.sleep(0.3)
-        self.go_home(duration=1.0)
+        self.go_home(duration=0.8)
 
         bowl_pos = self.item_positions.get("bowl2", (-2.5, 1.8, 0.77))
         knock_pos = self.item_positions.get("ikea_knock_box", (-5.14, -1.92, 0.77))
@@ -995,7 +970,6 @@ class Task3Controller(Node):
 
         # Navigate to recycling container (kitchen area)
         self.navigate_to("kitchen")
-        time.sleep(0.3)
 
         if not self._safety_check():
             self.go_home(duration=1.0)
@@ -1007,24 +981,21 @@ class Task3Controller(Node):
         self.get_logger().info("  Pouring beans into recycling container")
 
         # Approach above container
-        self.move_arm_to_xyz("right", knock_x, knock_y, pour_z, duration=2.0)
-        time.sleep(0.2)
+        self.move_arm_to_xyz("right", knock_x, knock_y, pour_z, duration=1.0)
 
         # Lower closer to container
-        self.move_arm_to_xyz("right", knock_x, knock_y, knock_z + 0.15, duration=1.0)
-        time.sleep(0.2)
+        self.move_arm_to_xyz("right", knock_x, knock_y, knock_z + 0.15, duration=0.5)
 
         # Tilt bowl to pour (move arm sideways and down)
-        self.move_arm_to_xyz("right", knock_x + 0.08, knock_y, knock_z + 0.10, duration=1.0)
-        time.sleep(1.0)  # wait for beans to fall
+        self.move_arm_to_xyz("right", knock_x + 0.08, knock_y, knock_z + 0.10, duration=0.5)
+        time.sleep(0.5)  # wait for beans to fall
 
         # Shake to release remaining beans
         self.move_arm_to_xyz("right", knock_x + 0.04, knock_y, knock_z + 0.12, duration=0.3)
         self.move_arm_to_xyz("right", knock_x + 0.10, knock_y, knock_z + 0.08, duration=0.3)
-        time.sleep(0.3)
 
         # Lift arm up
-        self.move_arm_to_xyz("right", knock_x, knock_y, pour_z, duration=1.0)
+        self.move_arm_to_xyz("right", knock_x, knock_y, pour_z, duration=0.5)
 
         if not self._safety_check():
             self.go_home(duration=1.0)
@@ -1091,10 +1062,9 @@ class Task3Controller(Node):
 
         # Navigate back to dining and return bowl
         self.navigate_to("dining")
-        time.sleep(0.2)
         self.place_only("bowl2", "right", (bowl_x, bowl_y, bowl_z))
 
-        self.go_home(duration=1.5)
+        self.go_home(duration=1.0)
         safe = self._safety_check()
         self.get_logger().info(
             f"Stage 3 complete (recovery={transfer_pct:.0f}%, peak_force={self.peak_force:.1f}N, safe={safe})"
@@ -1114,7 +1084,6 @@ class Task3Controller(Node):
         self._safety_reset()
         self.open_gripper("both")
         self.go_home()
-        time.sleep(0.3)
 
         # Utensils paired for dual-arm transport
         # 5 items → 3 trips: (2+2+1), reducing navigations from 10 to 6
@@ -1131,8 +1100,7 @@ class Task3Controller(Node):
         for left_obj, right_obj, left_target, right_target in utensil_pairs:
             # Navigate to dining for pickup
             self.navigate_to("dining")
-            time.sleep(0.3)
-            self.go_home(duration=1.0)
+            self.go_home(duration=0.8)
 
             # Dual-arm grasp
             left_ok, right_ok = self.grasp_both(left_obj=left_obj, right_obj=right_obj)
@@ -1141,11 +1109,9 @@ class Task3Controller(Node):
 
             # Safe carry position
             self.carry_position(arm="both")
-            time.sleep(0.2)
 
             # Navigate to sink for placement
             self.navigate_to("sink")
-            time.sleep(0.3)
 
             # Dual-arm place
             self.place_both(
@@ -1159,7 +1125,7 @@ class Task3Controller(Node):
             if right_ok:
                 cleaned += 1
 
-        self.go_home(duration=2.0)
+        self.go_home(duration=1.0)
         self.get_logger().info(f"Stage 4 complete: {cleaned}/5 items cleaned")
         return {"stage": 4, "status": "completed", "score": min(cleaned, 5),
                 "max_score": 5}
@@ -1238,7 +1204,7 @@ def main():
         print(f"\n{'='*60}")
         print(f"STAGE_RESULT {result}")
         print(f"{'='*60}\n")
-        time.sleep(1.0)
+        time.sleep(0.3)
 
     total_score = sum(r.get("score", 0) for r in results)
     total_max = sum(r.get("max_score", 0) for r in results)

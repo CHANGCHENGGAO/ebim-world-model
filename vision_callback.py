@@ -57,6 +57,20 @@ class VisionCallback:
         self.last_detect_time = -100.0
         self.img_count = 0
         self._init_done = False
+        self._demo_cameras = []
+        self._demo_frame_count = 0
+        self._demo_cam_configs = [
+            {"name": "Overview (Orbit)", "type": "orbit",
+             "center": (-4.0, 0.0, 0.75), "radius": 3.5, "height": 5.5},
+            {"name": "Kitchen View", "type": "fixed",
+             "pos": (-4.8, -0.6, 3.5), "target": (-5.2, -1.4, 0.78)},
+            {"name": "Dining View", "type": "fixed",
+             "pos": (-2.5, 1.0, 3.5), "target": (-2.8, 1.7, 0.78)},
+            {"name": "Side Overview", "type": "fixed",
+             "pos": (-1.0, 0.5, 3.5), "target": (-4.0, 0.0, 0.78)},
+        ]
+        self._cam_switch_interval = 80
+        self._cam_pattern = [0, 1, 0, 2, 0, 3, 1, 2, 3]
 
         # Precompute focal lengths from FOV
         w, h = resolution
@@ -76,16 +90,13 @@ class VisionCallback:
             from pxr import UsdLux
 
             # Try multiple orientation approaches
-            # Isaac Sim Camera default forward varies; we need to look straight down (-Z world)
-            # Try 90° Y rotation: +X forward -> -Z down
             try:
                 from omni.isaac.core.utils.rotations import euler_to_quat
-                orientation = euler_to_quat(np.array([0.0, 90.0, 0.0]))  # XYZ euler
+                orientation = euler_to_quat(np.array([0.0, 90.0, 0.0]))
                 self.node.get_logger().info(
                     f"Orientation from euler_to_quat([0,90,0]): {orientation}"
                 )
             except Exception:
-                # Fallback: manual quaternion (w, x, y, z) for 90° around Y
                 orientation = np.array([0.7071, 0.0, 0.7071, 0.0])
                 self.node.get_logger().info(
                     f"Using manual quaternion: {orientation}"
@@ -101,45 +112,101 @@ class VisionCallback:
             self.camera.add_distance_to_image_plane_to_frame()
             self.camera.add_pointcloud_to_frame()
 
-            # Also set via set_world_pose to be sure
             self.camera.set_world_pose(
-                position=np.array(self.camera_pos),
+                position=self.camera_pos,
                 orientation=orientation,
             )
 
-            # Get actual camera intrinsics for accurate coordinate conversion
+            # Set focal length and aperture
             try:
                 fl = self.camera.get_focal_length()
-                ha = self.camera.get_horizontal_aperture()
-                va = self.camera.get_vertical_aperture()
-                self.fx = fl * self.resolution[0] / ha
-                self.fy = fl * self.resolution[1] / va
-                node.get_logger().info(
-                    f"Camera intrinsics: fl={fl}, aperture=({ha:.3f},{va:.3f}), "
+                ap = self.camera.get_horizontal_aperture()
+                self.node.get_logger().info(
+                    f"Camera intrinsics: fl={fl}, aperture={ap}, "
                     f"fx={self.fx:.1f}, fy={self.fy:.1f}"
                 )
-            except Exception as e:
-                node.get_logger().warn(f"Failed to get camera intrinsics: {e}")
+            except Exception:
+                pass
 
-            node.get_logger().info(
+            self.node.get_logger().info(
                 f"Vision camera at {self.camera_pos} res={self.resolution} "
-                f"fx={self.fx:.1f} fy={self.fy:.1f} "
-                f"orient={orientation.tolist()} (looking down)"
+                f"fx={self.fx:.1f} fy={self.fy:.1f} orient={orientation} (looking down)"
             )
 
-            # Add dome light for better illumination
+            # Add lighting if scene is dark
             try:
                 stage = omni.usd.get_context().get_stage()
                 light_path = "/World/VisionDomeLight"
-                light = UsdLux.DomeLight.Define(stage, light_path)
-                light.CreateIntensityAttr(3000.0)
-                light.CreateColorAttr((1.0, 1.0, 1.0))
-                node.get_logger().info("Vision dome light added (intensity=3000)")
+                if not stage.GetPrimAtPath(light_path).IsValid():
+                    light = UsdLux.DomeLight.Define(stage, light_path)
+                    light.CreateIntensityAttr().Set(3000)
+                    self.node.get_logger().info("Vision dome light added (intensity=3000)")
             except Exception as e:
-                node.get_logger().warn(f"Vision: dome light failed: {e}")
+                self.node.get_logger().warn(f"Dome light failed: {e}")
+
+            # Log available depth methods
+            depth_methods = [m for m in dir(self.camera) if 'distance' in m.lower() or 'depth' in m.lower()]
+            self.node.get_logger().info(f"Camera depth-related methods: {depth_methods}")
 
         except Exception as e:
-            node.get_logger().warn(f"Vision: camera init failed: {e}")
+            self.node.get_logger().warn(f"Camera init failed: {e}")
+            self.camera = None
+
+        # --- Multi-camera demo system for video recording ---
+        self.node.get_logger().info("Demo camera system: starting")
+        try:
+            from omni.isaac.sensor import Camera as DemoCam
+            import os
+            os.makedirs("/root/demo_frames", exist_ok=True)
+
+            for i, config in enumerate(self._demo_cam_configs):
+                try:
+                    if config["type"] == "orbit":
+                        cx, cy, cz = config["center"]
+                        r = config["radius"]
+                        h = config["height"]
+                        start_pos = (cx + r, cy, h)
+                        orient = self._look_at_quat(
+                            list(start_pos), list(config["center"]))
+                    else:
+                        pos = config["pos"]
+                        target = config["target"]
+                        orient = self._look_at_quat(list(pos), list(target))
+                        start_pos = pos
+
+                    cam = DemoCam(
+                        prim_path=f"/World/DemoCam{i}",
+                        resolution=(1280, 720),
+                        translation=start_pos,
+                        orientation=orient,
+                    )
+                    cam.initialize()
+                    cam.add_distance_to_image_plane_to_frame()
+                    self._demo_cameras.append(cam)
+                    self.node.get_logger().info(
+                        f"Demo camera {i} ({config['name']}) initialized")
+                except Exception as e:
+                    self.node.get_logger().warn(
+                        f"Demo camera {i} ({config['name']}) init failed: {e}")
+
+            self.node.get_logger().info(
+                f"Demo system: {len(self._demo_cameras)} cameras active")
+        except Exception as e:
+            self.node.get_logger().warn(f"Demo camera system init failed: {e}")
+
+        # Get actual camera intrinsics for accurate coordinate conversion
+        try:
+            fl = self.camera.get_focal_length()
+            ha = self.camera.get_horizontal_aperture()
+            va = self.camera.get_vertical_aperture()
+            self.fx = fl * self.resolution[0] / ha
+            self.fy = fl * self.resolution[1] / va
+            node.get_logger().info(
+                f"Camera intrinsics: fl={fl}, aperture=({ha:.3f},{va:.3f}), "
+                f"fx={self.fx:.1f}, fy={self.fy:.1f}"
+            )
+        except Exception as e:
+            node.get_logger().warn(f"Failed to get camera intrinsics: {e}")
 
         try:
             from ultralytics import YOLO
@@ -183,10 +250,103 @@ class VisionCallback:
                     self._bean_log_count = 0
                 self._bean_log_count += 1
                 if self._bean_log_count <= 3 or self._bean_log_count % 10 == 0:
-                    self.node.get_logger().info(
-                        f"  Bean query: {len(bean_positions)} beans published "
-                        f"(frame {self._bean_log_count})"
-                    )
+                        self.node.get_logger().info(
+                            f"  Bean query: {len(bean_positions)} beans published "
+                            f"(frame {self._bean_log_count})"
+                        )
+
+        # --- Multi-camera demo: switch and capture ---
+        if self._demo_cameras:
+            if not hasattr(self, '_demo_tick_count'):
+                self._demo_tick_count = 0
+                self._demo_error_count = 0
+            self._demo_tick_count += 1
+
+            # Skip first 5 ticks for camera warmup
+            if self._demo_tick_count <= 5:
+                if self._demo_tick_count == 1:
+                    self.node.get_logger().info("Demo: warming up cameras...")
+            else:
+                try:
+                    import cv2
+                    seg_idx = self._demo_frame_count // self._cam_switch_interval
+                    cam_idx = self._cam_pattern[seg_idx % len(self._cam_pattern)]
+                    cam_idx = min(cam_idx, len(self._demo_cameras) - 1)
+                    config = self._demo_cam_configs[cam_idx]
+
+                    # Update orbit camera position each frame
+                    if config["type"] == "orbit":
+                        angle = self._demo_frame_count * 0.005
+                        cx, cy, cz = config["center"]
+                        r = config["radius"]
+                        h = config["height"]
+                        cam_x = cx + r * np.cos(angle)
+                        cam_y = cy + r * np.sin(angle)
+                        self._demo_cameras[cam_idx].set_world_pose(
+                            position=np.array([cam_x, cam_y, h]),
+                            orientation=self._look_at_quat(
+                                [cam_x, cam_y, h], [cx, cy, cz]))
+
+                    demo_img = self._demo_cameras[cam_idx].get_rgba()
+
+                    # Validate image is non-None AND has valid dimensions
+                    if (demo_img is not None and hasattr(demo_img, 'shape')
+                            and len(demo_img.shape) >= 2
+                            and demo_img.shape[0] > 0
+                            and demo_img.shape[1] > 0):
+                        # Convert to uint8 numpy array
+                        frame = np.array(demo_img)
+                        if frame.dtype != np.uint8:
+                            if frame.max() <= 1.0:
+                                frame = (frame * 255).astype(np.uint8)
+                            else:
+                                frame = frame.astype(np.uint8)
+
+                        # Handle alpha channel
+                        if frame.ndim == 3 and frame.shape[2] == 4:
+                            frame = frame[:, :, :3]
+
+                        # Use PIL for text overlay (avoids OpenCV layout issues)
+                        try:
+                            from PIL import Image, ImageDraw, ImageFont
+                            pil_img = Image.fromarray(frame)
+                            draw = ImageDraw.Draw(pil_img)
+                            # Camera name
+                            draw.text((10, 10), config["name"],
+                                      fill=(255, 255, 255))
+                            # Frame count
+                            h = pil_img.height
+                            draw.text((10, h - 20),
+                                      f"Frame {self._demo_frame_count}",
+                                      fill=(200, 200, 200))
+                            frame = np.array(pil_img)
+                        except Exception:
+                            # PIL failed, fallback: save without text
+                            pass
+
+                        # Convert RGB to BGR for cv2.imwrite
+                        frame_bgr = frame[:, :, ::-1].copy() if frame.ndim == 3 else frame
+
+                        self._demo_frame_count += 1
+                        cv2.imwrite(
+                            f"/root/demo_frames/frame_{self._demo_frame_count:06d}.png",
+                            frame_bgr)
+                        if self._demo_frame_count % 60 == 0:
+                            self.node.get_logger().info(
+                                f"Demo: {self._demo_frame_count} frames, "
+                                f"cam={config['name']}")
+                    else:
+                        self._demo_error_count += 1
+                        if self._demo_error_count % 60 == 1:
+                            self.node.get_logger().warn(
+                                f"Demo: empty image (tick {self._demo_tick_count}, "
+                                f"cam={config['name']}), "
+                                f"errors={self._demo_error_count}")
+                except Exception as e:
+                    self._demo_error_count += 1
+                    if self._demo_error_count % 60 == 1:
+                        self.node.get_logger().warn(
+                            f"Demo capture error (tick {self._demo_tick_count}): {e}")
 
         if self.camera is None:
             return
@@ -220,27 +380,6 @@ class VisionCallback:
                         )
                     except Exception:
                         pass
-
-            # Save demo frames every detection cycle for video generation
-            try:
-                import cv2, os
-                os.makedirs("/root/demo_frames", exist_ok=True)
-                frame = img.copy()
-                if frame.dtype != 'uint8':
-                    frame = (frame * 255).astype('uint8')
-                if frame.ndim == 3 and frame.shape[2] == 4:
-                    frame = frame[:, :, :3]
-                if frame.ndim == 3:
-                    frame = frame[:, :, ::-1]  # RGB -> BGR
-                cv2.imwrite(
-                    f"/root/demo_frames/frame_{self.img_count:06d}.png",
-                    frame
-                )
-            except Exception as save_e:
-                if self.img_count <= 6:
-                    self.node.get_logger().warn(
-                        f"Frame save failed: {save_e}, img dtype={img.dtype}, shape={img.shape}"
-                    )
 
             from sensor_msgs.msg import JointState
 
@@ -613,3 +752,120 @@ class VisionCallback:
                 )
             except Exception:
                 pass
+
+    def _look_at_quat(self, cam_pos, target_pos):
+        """
+        Compute quaternion [w, x, y, z] for camera at cam_pos looking at target_pos.
+        
+        Uses the same euler_to_quat approach as the working vision camera:
+        - Vision camera: euler_to_quat([0, 90, 0]) looks straight down
+        - So euler = [yaw_z, pitch_y, roll_x] convention
+        - Default forward = -Z
+        - pitch_y = 90 makes it look down (forward = -Y)
+        """
+        cam_pos = np.array(cam_pos, dtype=float)
+        target_pos = np.array(target_pos, dtype=float)
+
+        dx = target_pos[0] - cam_pos[0]
+        dy = target_pos[1] - cam_pos[1]
+        dz = target_pos[2] - cam_pos[2]
+
+        dist = np.sqrt(dx * dx + dy * dy + dz * dz)
+        if dist < 1e-6:
+            return np.array([1.0, 0.0, 0.0, 0.0])
+
+        # Horizontal distance in XY plane
+        horiz = np.sqrt(dx * dx + dy * dy)
+
+        # Pitch (around Y axis): angle from horizontal plane
+        # Positive pitch = look down (since pitch=90 looks straight down)
+        pitch = np.arctan2(-dz, horiz)  # negative dz means looking down -> positive pitch
+        pitch_deg = np.degrees(pitch)
+
+        # Yaw (around Z axis): direction in XY plane
+        # Default forward = -Z (when yaw=0). 
+        # We need to find yaw such that forward points to (dx, dy) in XY plane.
+        # When yaw=0, forward_xy = (0, -1)? No... let's think.
+        # Default forward = -Z = (0, 0, -1). Yaw around Z rotates this vector.
+        # After yaw by angle theta around Z:
+        #   forward_x = sin(theta)
+        #   forward_y = -cos(theta)  (since default forward y-component is -1? no...)
+        # 
+        # Actually: default forward = (0, 0, -1). Rotating around Z axis:
+        # x' = x*cos - y*sin = 0*cos - 0*sin = 0
+        # y' = x*sin + y*cos = 0
+        # z' = z = -1
+        # Hmm, rotating (0,0,-1) around Z does nothing!
+        #
+        # Wait, that means euler_to_quat([yaw_z, pitch_y, roll_x]) applies rotations in some order.
+        # Let's just use the known working reference:
+        # Camera at (x, y, 2.5) looking at (x, y, 0.77) straight down uses [0, 90, 0].
+        # So pitch_y = 90 tilts from forward=-Z to forward=downward.
+        # And if we want to look in direction (dx, dy, dz), we need:
+        # - yaw_z to rotate around Z so forward points in the right XY direction
+        # - pitch_y to tilt up/down
+        #
+        # But if default forward = -Z, rotating around Z doesn't change it...
+        # Unless the rotation order is pitch first, then yaw.
+        # Let's assume rotation order: yaw, then pitch, then roll (ZYX).
+        # Default forward = -Z = (0, 0, -1)
+        # After pitch around Y by angle p:
+        #   forward becomes (-sin(p), 0, -cos(p))
+        #   When p=90: forward = (-1, 0, 0) ... that's -X, not down.
+        #
+        # This is getting too complex. Let me just try a different approach:
+        # Use omni.isaac.core.utils.rotations if available, otherwise
+        # use the euler angles approach that we know works for the main camera.
+        
+        # Let me try using euler angles directly with yaw and pitch
+        # yaw = atan2(dx, -dy)  -- yaw around Z
+        # pitch = 90 - elevation angle from horizontal
+        
+        # Actually, simplest approach: compute direction vector,
+        # then use the quaternion from two vectors approach,
+        # but verify which axis is the default forward.
+        
+        # Let me test: for the main camera at (-5.2, -1.4, 2.5) looking at (-5.2, -1.4, 0.77)
+        # direction = (0, 0, -1.73) -> normalized = (0, 0, -1)
+        # Wait, that's straight down along -Z? No, (0, 0, -1) is along -Z.
+        # But the table is at y=-1.4, x=-5.2, camera is also at y=-1.4, x=-5.2.
+        # So the direction from camera to table is straight down along -Z.
+        # But the camera orientation is [0.7071, 0, 0.7071, 0] = pitch 90 around Y.
+        # That means default forward is NOT -Z!
+        #
+        # If camera needs to rotate 90deg around Y to look straight down (-Z direction),
+        # then default forward must be some other direction.
+        # Rotating 90deg around Y from default gives direction (0,0,-1).
+        # So default forward = (1, 0, 0) = +X direction.
+        # Let me verify: R_y(90) * (1, 0, 0) = (0, 0, -1). Yes!
+        # 
+        # Wait no: R_y(theta) * [x, y, z]^T = 
+        #   [x*cos + z*sin, y, -x*sin + z*cos]
+        # For theta=90, R_y(90) * [1, 0, 0] = [0, 0, -1]. Yes!
+        #
+        # So Isaac Sim camera default forward = +X axis.
+        # And euler_to_quat([yaw_z, pitch_y, roll_x]) with [0, 90, 0]
+        # rotates default forward (+X) to point down (-Z).
+        
+        # OK so default forward = +X. Let me redo the calculation.
+        
+        # Default forward direction
+        default_forward = np.array([1.0, 0.0, 0.0])
+        
+        target_forward = np.array([dx, dy, dz]) / dist
+        
+        dot = np.clip(np.dot(default_forward, target_forward), -1.0, 1.0)
+        
+        if dot > 0.9999:
+            return np.array([1.0, 0.0, 0.0, 0.0])
+        if dot < -0.9999:
+            return np.array([0.0, 0.0, 1.0, 0.0])  # 180 around Z
+        
+        axis = np.cross(default_forward, target_forward)
+        axis = axis / np.linalg.norm(axis)
+        angle = np.arccos(dot)
+        
+        half = angle / 2.0
+        w = np.cos(half)
+        s = np.sin(half)
+        return np.array([w, axis[0] * s, axis[1] * s, axis[2] * s])
