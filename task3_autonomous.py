@@ -557,7 +557,7 @@ class Task3Controller(Node):
         target = NAV_TARGETS[target_name]
         tx, ty, tyaw = target
 
-        for attempt in range(3):
+        for attempt in range(2):
             dx = tx - self.base_pos[0]
             dy = ty - self.base_pos[1]
             yaw_rad = math.radians(self.base_yaw)
@@ -592,7 +592,7 @@ class Task3Controller(Node):
             dist = math.sqrt(dx**2 + dy**2)
             if dist < 0.15 and abs(yaw_err) < 5.0:
                 break
-            time.sleep(0.5)  # wait for odom to update
+            time.sleep(0.2)  # wait for odom to update
 
     # --- Grasp / Place helpers ---
 
@@ -606,18 +606,90 @@ class Task3Controller(Node):
         pre_grasp_z = oz + 0.15
         grasp_z = oz + 0.02
 
-        if not self.move_arm_to_xyz(arm, ox, oy, pre_grasp_z, duration=2.0):
+        if not self.move_arm_to_xyz(arm, ox, oy, pre_grasp_z, duration=1.5):
             return False
-        time.sleep(0.3)
-        if not self.move_arm_to_xyz(arm, ox, oy, grasp_z, duration=1.0):
+        time.sleep(0.2)
+        if not self.move_arm_to_xyz(arm, ox, oy, grasp_z, duration=0.8):
             return False
-        time.sleep(0.3)
+        time.sleep(0.2)
         self.close_gripper(arm)
-        time.sleep(0.5)
-        if not self.move_arm_to_xyz(arm, ox, oy, pre_grasp_z, duration=1.0):
+        time.sleep(0.4)
+        if not self.move_arm_to_xyz(arm, ox, oy, pre_grasp_z, duration=0.8):
             return False
-        time.sleep(0.3)
+        time.sleep(0.2)
         return True
+
+    def grasp_both(self, left_obj=None, right_obj=None):
+        """Grasp two objects simultaneously with both arms (faster than sequential)."""
+        left_q = None
+        right_q = None
+
+        if left_obj is not None:
+            ox, oy, oz = self.item_positions.get(
+                left_obj, INITIAL_OBJECT_POSITIONS.get(left_obj, (0, 0, 0)))
+            self.get_logger().info(f"  Dual-grasp left: {left_obj}")
+            target_arm = world_to_arm_frame(ox, oy, oz + 0.15, self.base_pos, self.base_yaw, arm="left")
+            q_init = np.array([self.current_left.get(n, 0.0) for n in self.LEFT_ARM_JOINTS])
+            q, ok = inverse_kinematics(target_arm, q_init=q_init)
+            if ok:
+                left_q = q
+
+        if right_obj is not None:
+            ox, oy, oz = self.item_positions.get(
+                right_obj, INITIAL_OBJECT_POSITIONS.get(right_obj, (0, 0, 0)))
+            self.get_logger().info(f"  Dual-grasp right: {right_obj}")
+            target_arm = world_to_arm_frame(ox, oy, oz + 0.15, self.base_pos, self.base_yaw, arm="right")
+            q_init = np.array([self.current_right.get(n, 0.0) for n in self.RIGHT_ARM_JOINTS])
+            q, ok = inverse_kinematics(target_arm, q_init=q_init)
+            if ok:
+                right_q = q
+
+        # Phase 1: both arms move to pre-grasp position
+        if left_q is not None or right_q is not None:
+            self._interpolate_move(left_q, right_q, duration=1.5)
+            time.sleep(0.2)
+
+        # Phase 2: lower to grasp position + close grippers (sequential, each uses move_arm_to_xyz)
+        left_grasp_ok = False
+        right_grasp_ok = False
+        for arm, obj in [("left", left_obj), ("right", right_obj)]:
+            if obj is None:
+                continue
+            ox, oy, oz = self.item_positions.get(
+                obj, INITIAL_OBJECT_POSITIONS.get(obj, (0, 0, 0)))
+            ok = self.move_arm_to_xyz(arm, ox, oy, oz + 0.02, duration=0.8)
+            if ok:
+                self.close_gripper(arm)
+                time.sleep(0.4)
+                if arm == "left":
+                    left_grasp_ok = True
+                else:
+                    right_grasp_ok = True
+
+        # Phase 3: both arms lift together
+        left_q_lift = None
+        right_q_lift = None
+        if left_obj is not None and left_grasp_ok:
+            ox, oy, oz = self.item_positions.get(
+                left_obj, INITIAL_OBJECT_POSITIONS.get(left_obj, (0, 0, 0)))
+            target_arm = world_to_arm_frame(ox, oy, oz + 0.15, self.base_pos, self.base_yaw, arm="left")
+            q_init = np.array([self.current_left.get(n, 0.0) for n in self.LEFT_ARM_JOINTS])
+            q, ok = inverse_kinematics(target_arm, q_init=q_init)
+            if ok:
+                left_q_lift = q
+        if right_obj is not None and right_grasp_ok:
+            ox, oy, oz = self.item_positions.get(
+                right_obj, INITIAL_OBJECT_POSITIONS.get(right_obj, (0, 0, 0)))
+            target_arm = world_to_arm_frame(ox, oy, oz + 0.15, self.base_pos, self.base_yaw, arm="right")
+            q_init = np.array([self.current_right.get(n, 0.0) for n in self.RIGHT_ARM_JOINTS])
+            q, ok = inverse_kinematics(target_arm, q_init=q_init)
+            if ok:
+                right_q_lift = q
+        if left_q_lift is not None or right_q_lift is not None:
+            self._interpolate_move(left_q_lift, right_q_lift, duration=0.8)
+            time.sleep(0.2)
+
+        return (left_grasp_ok, right_grasp_ok)
 
     def place_only(self, obj_name, arm, place_pos):
         """Place a held object at the given position."""
@@ -625,18 +697,85 @@ class Task3Controller(Node):
         self.get_logger().info(
             f"  Placing {obj_name} at ({tx:.2f},{ty:.2f},{tz:.2f}) with {arm} arm")
 
-        if not self.move_arm_to_xyz(arm, tx, ty, tz + 0.15, duration=3.0):
+        if not self.move_arm_to_xyz(arm, tx, ty, tz + 0.15, duration=1.5):
             return False
-        time.sleep(0.3)
-        if not self.move_arm_to_xyz(arm, tx, ty, tz, duration=1.0):
+        time.sleep(0.2)
+        if not self.move_arm_to_xyz(arm, tx, ty, tz, duration=0.8):
             return False
-        time.sleep(0.3)
+        time.sleep(0.2)
         self.open_gripper(arm)
-        time.sleep(0.5)
-        self.move_arm_to_xyz(arm, tx, ty, tz + 0.15, duration=1.0)
+        time.sleep(0.4)
+        self.move_arm_to_xyz(arm, tx, ty, tz + 0.15, duration=0.8)
         self.item_positions[obj_name] = list(place_pos)
         self._placed_items.add(obj_name)
         return True
+
+    def place_both(self, left_obj=None, left_pos=None, right_obj=None, right_pos=None):
+        """Place two objects simultaneously with both arms (faster than sequential)."""
+        left_q = None
+        right_q = None
+
+        if left_obj is not None and left_pos is not None:
+            tx, ty, tz = left_pos
+            self.get_logger().info(f"  Dual-place left: {left_obj}")
+            target_arm = world_to_arm_frame(tx, ty, tz + 0.15, self.base_pos, self.base_yaw, arm="left")
+            q_init = np.array([self.current_left.get(n, 0.0) for n in self.LEFT_ARM_JOINTS])
+            q, ok = inverse_kinematics(target_arm, q_init=q_init)
+            if ok:
+                left_q = q
+
+        if right_obj is not None and right_pos is not None:
+            tx, ty, tz = right_pos
+            self.get_logger().info(f"  Dual-place right: {right_obj}")
+            target_arm = world_to_arm_frame(tx, ty, tz + 0.15, self.base_pos, self.base_yaw, arm="right")
+            q_init = np.array([self.current_right.get(n, 0.0) for n in self.RIGHT_ARM_JOINTS])
+            q, ok = inverse_kinematics(target_arm, q_init=q_init)
+            if ok:
+                right_q = q
+
+        # Phase 1: both arms move above place position
+        if left_q is not None or right_q is not None:
+            self._interpolate_move(left_q, right_q, duration=1.5)
+            time.sleep(0.2)
+
+        # Phase 2: lower + open each arm (sequential, uses move_arm_to_xyz)
+        left_place_ok = False
+        right_place_ok = False
+        for arm, obj, pos in [("left", left_obj, left_pos), ("right", right_obj, right_pos)]:
+            if obj is None or pos is None:
+                continue
+            tx, ty, tz = pos
+            ok = self.move_arm_to_xyz(arm, tx, ty, tz, duration=0.8)
+            if ok:
+                self.open_gripper(arm)
+                time.sleep(0.4)
+                self.item_positions[obj] = list(pos)
+                self._placed_items.add(obj)
+                if arm == "left":
+                    left_place_ok = True
+                else:
+                    right_place_ok = True
+
+        # Phase 3: both arms lift together
+        left_q_lift = None
+        right_q_lift = None
+        if left_obj is not None and left_place_ok and left_pos is not None:
+            tx, ty, tz = left_pos
+            target_arm = world_to_arm_frame(tx, ty, tz + 0.15, self.base_pos, self.base_yaw, arm="left")
+            q_init = np.array([self.current_left.get(n, 0.0) for n in self.LEFT_ARM_JOINTS])
+            q, ok = inverse_kinematics(target_arm, q_init=q_init)
+            if ok:
+                left_q_lift = q
+        if right_obj is not None and right_place_ok and right_pos is not None:
+            tx, ty, tz = right_pos
+            target_arm = world_to_arm_frame(tx, ty, tz + 0.15, self.base_pos, self.base_yaw, arm="right")
+            q_init = np.array([self.current_right.get(n, 0.0) for n in self.RIGHT_ARM_JOINTS])
+            q, ok = inverse_kinematics(target_arm, q_init=q_init)
+            if ok:
+                right_q_lift = q
+        if left_q_lift is not None or right_q_lift is not None:
+            self._interpolate_move(left_q_lift, right_q_lift, duration=0.8)
+            time.sleep(0.2)
 
     def carry_position(self, arm="both"):
         """Move arms to a safe carry position for navigation."""
@@ -663,68 +802,48 @@ class Task3Controller(Node):
         self._safety_reset()
         self.open_gripper("both")
         self.go_home()
-        time.sleep(0.5)
+        time.sleep(0.3)
 
-        # Items and their dining-area target positions
-        # Targets chosen to be within arm reach from robot at (-3.0, 1.5, yaw=-90)
-        dining_targets = [
-            ("simple_tray", (-3.0, 1.4, 0.77),  "left"),
-            ("bowl2",       (-2.9, 1.6, 0.77),  "right"),
-            ("spoon2",      (-2.8, 1.8, 0.77),  "left"),
-            ("plate2",      (-3.2, 1.4, 0.77),  "right"),
-            ("cup",         (-2.7, 1.4, 0.77),  "left"),
+        # Items paired for dual-arm transport: (left_item, right_item, left_target, right_target)
+        # 5 items → 3 trips: (2+2+1), reducing navigations from 10 to 6
+        dining_pairs = [
+            # Trip 1: tray (left) + bowl (right)
+            ("simple_tray", "bowl2", (-3.0, 1.4, 0.77), (-2.9, 1.6, 0.77)),
+            # Trip 2: spoon (left) + plate (right)
+            ("spoon2", "plate2", (-2.8, 1.8, 0.77), (-3.2, 1.4, 0.77)),
+            # Trip 3: cup (left only)
+            ("cup", None, (-2.7, 1.4, 0.77), None),
         ]
 
         moved = 0
-        for obj_name, place_pos, hardcoded_arm in dining_targets:
+        for left_obj, right_obj, left_target, right_target in dining_pairs:
             # Navigate to kitchen for pickup
             self.navigate_to("kitchen")
-            time.sleep(1.0)
+            time.sleep(0.3)
             self.go_home(duration=1.0)
 
-            # Ask LLM which arm to use (with hardcoded fallback)
-            arm = hardcoded_arm
-            if self.policy_mgr is not None and self.policy_mgr._llm_available:
-                state = {
-                    "item_positions": {k: v for k, v in self.item_positions.items()},
-                    "base_pos": [float(self.base_pos[0]), float(self.base_pos[1])],
-                    "base_yaw": float(self.base_yaw),
-                    "gripper": {"left": self.left_gripper, "right": self.right_gripper},
-                }
-                goal = {
-                    "description": f"抓取{obj_name}并搬到餐厅。应该用左手还是右手？",
-                    "available_objects": [obj_name],
-                }
-                plan = self.policy_mgr.plan_action(
-                    state, goal,
-                    hardcoded_plan_fn=lambda s, g: {"action": "grasp", "arm": hardcoded_arm, "target_object": obj_name},
-                )
-                llm_arm = plan.get("arm", hardcoded_arm)
-                if llm_arm in ("left", "right"):
-                    arm = llm_arm
-                self.get_logger().info(
-                    f"  Arm selection: {arm} (source={plan.get('source', '?')}, "
-                    f"time={plan.get('time_used', 0):.2f}s)"
-                )
+            # Dual-arm grasp
+            left_ok, right_ok = self.grasp_both(left_obj=left_obj, right_obj=right_obj)
 
-            # Grasp at kitchen
-            self.get_logger().info(f"  Moving {obj_name} to dining area with {arm} arm")
-            if not self.grasp_only(obj_name, arm=arm):
-                self.get_logger().warn(f"  Failed to grasp {obj_name}, skipping")
-                continue
-
-            # Safe carry position
-            self.carry_position(arm=arm)
+            # Safe carry position (both arms simultaneously)
+            self.carry_position(arm="both")
+            time.sleep(0.2)
 
             # Navigate to dining area for placement
             self.navigate_to("dining")
-            time.sleep(0.5)
+            time.sleep(0.3)
 
-            # Place at dining area
-            if not self.place_only(obj_name, arm, place_pos):
-                self.get_logger().warn(f"  Failed to place {obj_name}")
-                continue
-            moved += 1
+            # Dual-arm place
+            self.place_both(
+                left_obj=left_obj if left_ok else None,
+                left_pos=left_target if left_ok else None,
+                right_obj=right_obj if right_ok else None,
+                right_pos=right_target if right_ok else None,
+            )
+            if left_ok:
+                moved += 1
+            if right_ok:
+                moved += 1
 
         self.go_home(duration=2.0)
         self.get_logger().info(f"Stage 1 complete: {moved}/5 items moved")
@@ -894,15 +1013,15 @@ class Task3Controller(Node):
 
         # Tilt bowl to pour (move arm sideways and down)
         self.move_arm_to_xyz("right", knock_x + 0.08, knock_y, knock_z + 0.10, duration=1.5)
-        time.sleep(3.0)  # wait for beans to fall
+        time.sleep(1.5)  # wait for beans to fall
 
         # Shake to release remaining beans
-        self.move_arm_to_xyz("right", knock_x + 0.04, knock_y, knock_z + 0.12, duration=0.5)
-        self.move_arm_to_xyz("right", knock_x + 0.10, knock_y, knock_z + 0.08, duration=0.5)
-        time.sleep(1.0)
+        self.move_arm_to_xyz("right", knock_x + 0.04, knock_y, knock_z + 0.12, duration=0.4)
+        self.move_arm_to_xyz("right", knock_x + 0.10, knock_y, knock_z + 0.08, duration=0.4)
+        time.sleep(0.5)
 
         # Lift arm up
-        self.move_arm_to_xyz("right", knock_x, knock_y, pour_z, duration=2.0)
+        self.move_arm_to_xyz("right", knock_x, knock_y, pour_z, duration=1.5)
 
         if not self._safety_check():
             self.go_home(duration=1.0)
@@ -971,38 +1090,50 @@ class Task3Controller(Node):
         self._safety_reset()
         self.open_gripper("both")
         self.go_home()
-        time.sleep(0.5)
+        time.sleep(0.3)
 
-        utensils = [
-            ("simple_tray", (-5.30, -2.15, 0.77), "left"),
-            ("bowl2",       (-5.20, -2.20, 0.77), "right"),
-            ("spoon2",      (-5.10, -2.15, 0.77), "left"),
-            ("plate2",      (-5.35, -2.25, 0.77), "right"),
-            ("cup",         (-5.15, -2.30, 0.77), "left"),
+        # Utensils paired for dual-arm transport
+        # 5 items → 3 trips: (2+2+1), reducing navigations from 10 to 6
+        utensil_pairs = [
+            # Trip 1: tray (left) + bowl (right)
+            ("simple_tray", "bowl2", (-5.30, -2.15, 0.77), (-5.20, -2.20, 0.77)),
+            # Trip 2: spoon (left) + plate (right)
+            ("spoon2", "plate2", (-5.10, -2.15, 0.77), (-5.35, -2.25, 0.77)),
+            # Trip 3: cup (left only)
+            ("cup", None, (-5.15, -2.30, 0.77), None),
         ]
 
         cleaned = 0
-        for obj_name, place_pos, arm in utensils:
+        for left_obj, right_obj, left_target, right_target in utensil_pairs:
             # Navigate to dining for pickup
             self.navigate_to("dining")
-            time.sleep(1.0)
+            time.sleep(0.3)
             self.go_home(duration=1.0)
 
-            self.get_logger().info(f"  Cleaning {obj_name} -> sink")
-            if not self.grasp_only(obj_name, arm=arm):
-                self.get_logger().warn(f"  Failed to grasp {obj_name}, skipping")
+            # Dual-arm grasp
+            left_ok, right_ok = self.grasp_both(left_obj=left_obj, right_obj=right_obj)
+            if not left_ok and not right_ok:
                 continue
 
-            self.carry_position(arm=arm)
+            # Safe carry position
+            self.carry_position(arm="both")
+            time.sleep(0.2)
 
             # Navigate to sink for placement
             self.navigate_to("sink")
-            time.sleep(0.5)
+            time.sleep(0.3)
 
-            if not self.place_only(obj_name, arm, place_pos):
-                self.get_logger().warn(f"  Failed to place {obj_name}")
-                continue
-            cleaned += 1
+            # Dual-arm place
+            self.place_both(
+                left_obj=left_obj if left_ok else None,
+                left_pos=left_target if left_ok else None,
+                right_obj=right_obj if right_ok else None,
+                right_pos=right_target if right_ok else None,
+            )
+            if left_ok:
+                cleaned += 1
+            if right_ok:
+                cleaned += 1
 
         self.go_home(duration=2.0)
         self.get_logger().info(f"Stage 4 complete: {cleaned}/5 items cleaned")
