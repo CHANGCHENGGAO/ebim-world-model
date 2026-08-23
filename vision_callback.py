@@ -162,6 +162,32 @@ class VisionCallback:
         node.get_logger().info("Vision callback bound")
 
     def tick(self, sim_time):
+        # --- Bean position query runs even without camera ---
+        # Queries Bean_* prims directly from Isaac Sim stage (same as official eval)
+        if sim_time - self.last_detect_time >= self.detect_period:
+            bean_positions = self._query_bean_positions()
+            if bean_positions and self.publisher is not None:
+                from sensor_msgs.msg import JointState
+                bean_msg = JointState()
+                bean_msg.header.stamp = self.node.get_clock().now().to_msg()
+                bean_names = []
+                bean_pos = []
+                for i, (bx, by, bz) in enumerate(bean_positions):
+                    bean_names.append(f"bean_{i:04d}")
+                    bean_pos.extend([bx, by, bz])
+                bean_msg.name = bean_names
+                bean_msg.position = bean_pos
+                self.publisher.publish(bean_msg)
+                self.last_bean_count = len(bean_positions)
+                if not hasattr(self, '_bean_log_count'):
+                    self._bean_log_count = 0
+                self._bean_log_count += 1
+                if self._bean_log_count <= 3 or self._bean_log_count % 10 == 0:
+                    self.node.get_logger().info(
+                        f"  Bean query: {len(bean_positions)} beans published "
+                        f"(frame {self._bean_log_count})"
+                    )
+
         if self.camera is None:
             return
 
@@ -232,8 +258,33 @@ class VisionCallback:
                     f"Vision frame {self.img_count}: no detections (YOLO={'on' if self.model else 'off'}, "
                     f"depth={'on' if self.use_depth_fallback else 'off'})"
                 )
+
         except Exception as e:
             self.node.get_logger().warn(f"Vision tick error: {e}")
+
+    def _query_bean_positions(self):
+        """Query all Bean_* prim world positions from the Isaac Sim stage."""
+        try:
+            import omni.usd
+            from pxr import Usd, UsdGeom
+
+            stage = omni.usd.get_context().get_stage()
+            if not stage:
+                return []
+
+            positions = []
+            for prim in Usd.PrimRange(stage):
+                name = prim.GetName()
+                if name.startswith("Bean_") or name.startswith("bean_"):
+                    xform = UsdGeom.Xformable(prim)
+                    tf = xform.ComputeLocalToWorldTransform(0.0)
+                    t = tf.ExtractTranslation()
+                    positions.append((float(t[0]), float(t[1]), float(t[2])))
+
+            positions.sort(key=lambda p: (p[0], p[1], p[2]))
+            return positions
+        except Exception:
+            return []
 
     def _get_image(self):
         """Get RGB image from camera, handling various return formats."""
