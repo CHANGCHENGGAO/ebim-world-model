@@ -455,7 +455,7 @@ class Task3Controller(Node):
                 interp = start_right + smooth * (target_q_right - start_right)
                 self.target_right = dict(zip(self.RIGHT_ARM_JOINTS, interp.tolist()))
             time.sleep(1.0 / self.rate)
-        time.sleep(0.1)
+        time.sleep(0.05)
 
     def move_arm_to_xyz(self, arm, x, y, z, duration=3.0, retries=5):
         target_arm = world_to_arm_frame(x, y, z, self.base_pos, self.base_yaw, arm=arm)
@@ -859,11 +859,11 @@ class Task3Controller(Node):
         self._safety_reset()
         self.open_gripper("both")
         self.go_home()
-        time.sleep(0.5)
+        time.sleep(0.2)
 
         # Ensure robot is at dining area where items were placed
         self.navigate_to("dining")
-        time.sleep(1.0)
+        time.sleep(0.3)
         self.go_home(duration=1.0)
 
         # Items are at dining area (placed in Stage 1)
@@ -875,17 +875,16 @@ class Task3Controller(Node):
         head_x, head_y, head_z = head_pos
 
         # --- Bimanual coordination: right arm steadies bowl ---
-        # Right arm approaches bowl from the side and grips it
         self.get_logger().info("  [Bimanual] Right arm steadying bowl")
-        bowl_grip_x = bowl_x + 0.10  # approach from right side
+        bowl_grip_x = bowl_x + 0.10
         bowl_grip_y = bowl_y - 0.05
         bowl_grip_z = bowl_z + 0.02
-        if not self.move_arm_to_xyz("right", bowl_grip_x, bowl_grip_y, bowl_grip_z + 0.15, duration=2.0):
+        if not self.move_arm_to_xyz("right", bowl_grip_x, bowl_grip_y, bowl_grip_z + 0.15, duration=1.5):
             self.get_logger().warn("  Right arm approach failed, continuing unimanual")
         else:
-            self.move_arm_to_xyz("right", bowl_grip_x, bowl_grip_y, bowl_grip_z, duration=1.0)
+            self.move_arm_to_xyz("right", bowl_grip_x, bowl_grip_y, bowl_grip_z, duration=0.8)
             self.close_gripper("right")
-            time.sleep(1.0)
+            time.sleep(0.4)
             self.get_logger().info("  [Bimanual] Bowl steadied by right arm")
 
         if not self._safety_check():
@@ -895,13 +894,13 @@ class Task3Controller(Node):
 
         # --- Left arm picks up spoon ---
         self.get_logger().info("  Picking up spoon")
-        if not self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.15, duration=2.0):
+        if not self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.15, duration=1.5):
             return {"stage": 2, "status": "failed", "score": 0, "max_score": 4}
-        if not self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.02, duration=1.0):
+        if not self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.02, duration=0.8):
             return {"stage": 2, "status": "failed", "score": 0, "max_score": 4}
         self.close_gripper("left")
-        time.sleep(1.0)
-        self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.20, duration=1.5)
+        time.sleep(0.4)
+        self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.20, duration=1.0)
 
         if not self._safety_check():
             self.go_home(duration=1.0)
@@ -910,8 +909,8 @@ class Task3Controller(Node):
 
         # --- Scoop from bowl (right arm holds bowl steady) ---
         self.get_logger().info("  Scooping beans from bowl (bimanual: left scoops, right steadies)")
-        self.move_arm_to_xyz("left", bowl_x, bowl_y, bowl_z + 0.05, duration=2.0)
-        time.sleep(0.5)
+        self.move_arm_to_xyz("left", bowl_x, bowl_y, bowl_z + 0.05, duration=1.5)
+        time.sleep(0.2)
 
         if not self._safety_check():
             self.go_home(duration=1.0)
@@ -923,13 +922,13 @@ class Task3Controller(Node):
         feed_y = head_y
         feed_z = head_z + 0.20
         self.get_logger().info("  Moving to feeding pose")
-        self.move_arm_to_xyz("left", feed_x, feed_y, feed_z, duration=2.0)
+        self.move_arm_to_xyz("left", feed_x, feed_y, feed_z, duration=1.5)
 
-        # --- Hold for 3+ seconds with safety monitoring ---
-        self.get_logger().info("  Holding spoon at feeding pose for 3.5 seconds...")
+        # --- Hold for 3.0+ seconds with safety monitoring ---
+        self.get_logger().info("  Holding spoon at feeding pose for 3.0 seconds...")
         hold_start = time.time()
-        while time.time() - hold_start < 3.5:
-            time.sleep(0.5)
+        while time.time() - hold_start < 3.1:
+            time.sleep(0.3)
             if not self._safety_check():
                 self.go_home(duration=1.0)
                 self.open_gripper("right")
@@ -939,21 +938,21 @@ class Task3Controller(Node):
 
         # --- Return beans to bowl ---
         self.get_logger().info("  Returning beans to bowl")
-        self.move_arm_to_xyz("left", bowl_x, bowl_y, bowl_z + 0.05, duration=2.0)
-        time.sleep(0.5)
-        self.move_arm_to_xyz("left", bowl_x, bowl_y, bowl_z + 0.20, duration=1.5)
+        self.move_arm_to_xyz("left", bowl_x, bowl_y, bowl_z + 0.05, duration=1.5)
+        time.sleep(0.2)
+        self.move_arm_to_xyz("left", bowl_x, bowl_y, bowl_z + 0.20, duration=1.0)
 
         # --- Return spoon to table ---
-        self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.02, duration=2.0)
+        self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.02, duration=1.5)
         self.open_gripper("left")
-        self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.20, duration=1.0)
+        self.move_arm_to_xyz("left", spoon_x, spoon_y, spoon_z + 0.20, duration=0.8)
 
         # --- Right arm releases bowl ---
         self.get_logger().info("  [Bimanual] Right arm releasing bowl")
         self.open_gripper("right")
-        self.move_arm_to_xyz("right", bowl_grip_x, bowl_grip_y, bowl_grip_z + 0.15, duration=1.5)
+        self.move_arm_to_xyz("right", bowl_grip_x, bowl_grip_y, bowl_grip_z + 0.15, duration=1.0)
 
-        self.go_home(duration=2.0)
+        self.go_home(duration=1.5)
         safe = self._safety_check()
         self.get_logger().info(
             f"Stage 2 complete (hold={hold_time:.1f}s, peak_force={self.peak_force:.1f}N, safe={safe})"
@@ -971,11 +970,11 @@ class Task3Controller(Node):
         self._safety_reset()
         self.open_gripper("both")
         self.go_home()
-        time.sleep(0.5)
+        time.sleep(0.2)
 
         # Ensure robot is at dining area where bowl is
         self.navigate_to("dining")
-        time.sleep(1.0)
+        time.sleep(0.3)
         self.go_home(duration=1.0)
 
         bowl_pos = self.item_positions.get("bowl2", (-2.5, 1.8, 0.77))
@@ -992,7 +991,7 @@ class Task3Controller(Node):
 
         # Navigate to recycling container (kitchen area)
         self.navigate_to("kitchen")
-        time.sleep(1.0)
+        time.sleep(0.3)
 
         if not self._safety_check():
             self.go_home(duration=1.0)
@@ -1004,24 +1003,24 @@ class Task3Controller(Node):
         self.get_logger().info("  Pouring beans into recycling container")
 
         # Approach above container
-        self.move_arm_to_xyz("right", knock_x, knock_y, pour_z, duration=3.0)
-        time.sleep(0.5)
+        self.move_arm_to_xyz("right", knock_x, knock_y, pour_z, duration=2.0)
+        time.sleep(0.2)
 
         # Lower closer to container
-        self.move_arm_to_xyz("right", knock_x, knock_y, knock_z + 0.15, duration=1.5)
-        time.sleep(0.5)
+        self.move_arm_to_xyz("right", knock_x, knock_y, knock_z + 0.15, duration=1.0)
+        time.sleep(0.2)
 
         # Tilt bowl to pour (move arm sideways and down)
-        self.move_arm_to_xyz("right", knock_x + 0.08, knock_y, knock_z + 0.10, duration=1.5)
-        time.sleep(1.5)  # wait for beans to fall
+        self.move_arm_to_xyz("right", knock_x + 0.08, knock_y, knock_z + 0.10, duration=1.0)
+        time.sleep(1.0)  # wait for beans to fall
 
         # Shake to release remaining beans
-        self.move_arm_to_xyz("right", knock_x + 0.04, knock_y, knock_z + 0.12, duration=0.4)
-        self.move_arm_to_xyz("right", knock_x + 0.10, knock_y, knock_z + 0.08, duration=0.4)
-        time.sleep(0.5)
+        self.move_arm_to_xyz("right", knock_x + 0.04, knock_y, knock_z + 0.12, duration=0.3)
+        self.move_arm_to_xyz("right", knock_x + 0.10, knock_y, knock_z + 0.08, duration=0.3)
+        time.sleep(0.3)
 
         # Lift arm up
-        self.move_arm_to_xyz("right", knock_x, knock_y, pour_z, duration=1.5)
+        self.move_arm_to_xyz("right", knock_x, knock_y, pour_z, duration=1.0)
 
         if not self._safety_check():
             self.go_home(duration=1.0)
@@ -1067,10 +1066,10 @@ class Task3Controller(Node):
 
         # Navigate back to dining and return bowl
         self.navigate_to("dining")
-        time.sleep(0.5)
+        time.sleep(0.2)
         self.place_only("bowl2", "right", (bowl_x, bowl_y, bowl_z))
 
-        self.go_home(duration=2.0)
+        self.go_home(duration=1.5)
         safe = self._safety_check()
         self.get_logger().info(
             f"Stage 3 complete (recovery={transfer_pct:.0f}%, peak_force={self.peak_force:.1f}N, safe={safe})"
