@@ -221,28 +221,26 @@ class VisionCallback:
                     except Exception:
                         pass
 
-            # Save demo frames periodically for video generation
-            if self.img_count % 3 == 0:
-                try:
-                    import cv2, os
-                    os.makedirs("/root/demo_frames", exist_ok=True)
-                    # Ensure uint8 BGR for cv2
-                    frame = img.copy()
-                    if frame.dtype != 'uint8':
-                        frame = (frame * 255).astype('uint8')
-                    if frame.ndim == 3 and frame.shape[2] == 4:
-                        frame = frame[:, :, :3]
-                    if frame.ndim == 3:
-                        frame = frame[:, :, ::-1]  # RGB -> BGR
-                    cv2.imwrite(
-                        f"/root/demo_frames/frame_{self.img_count:06d}.png",
-                        frame
+            # Save demo frames every detection cycle for video generation
+            try:
+                import cv2, os
+                os.makedirs("/root/demo_frames", exist_ok=True)
+                frame = img.copy()
+                if frame.dtype != 'uint8':
+                    frame = (frame * 255).astype('uint8')
+                if frame.ndim == 3 and frame.shape[2] == 4:
+                    frame = frame[:, :, :3]
+                if frame.ndim == 3:
+                    frame = frame[:, :, ::-1]  # RGB -> BGR
+                cv2.imwrite(
+                    f"/root/demo_frames/frame_{self.img_count:06d}.png",
+                    frame
+                )
+            except Exception as save_e:
+                if self.img_count <= 6:
+                    self.node.get_logger().warn(
+                        f"Frame save failed: {save_e}, img dtype={img.dtype}, shape={img.shape}"
                     )
-                except Exception as save_e:
-                    if self.img_count <= 6:
-                        self.node.get_logger().warn(
-                            f"Frame save failed: {save_e}, img dtype={img.dtype}, shape={img.shape}"
-                        )
 
             from sensor_msgs.msg import JointState
 
