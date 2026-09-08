@@ -59,6 +59,8 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(topics["right_arm_cmd"], "/right/gello/joint_states")
         self.assertEqual(topics["head_rgb"], "/head_camera/zed_node/rgb/color/rect/image")
         self.assertNotIn("head_depth", topics)
+        self.assertEqual(contract["onsite_bowl_cup_route"]["bowl_arm"], "left")
+        self.assertEqual(contract["onsite_bowl_cup_route"]["cup_arm"], "right")
 
     def test_rgbd_contract_is_required_only_when_declared(self):
         sim = load_contract(ROOT / "config" / "robot_io.json", "sim")

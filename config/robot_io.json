@@ -101,8 +101,8 @@
       "onsite_bowl_cup_route": {
         "enabled": true,
         "note": "Autonomous relative-odom route. All measured motions are recorded, including the estimated 1.40 m final approach. Runtime still fails closed unless every required sensor topic is fresh. Values are relative to the odom pose when the workflow starts; they are not map coordinates.",
-        "bowl_arm": "right",
-        "cup_arm": "left",
+        "bowl_arm": "left",
+        "cup_arm": "right",
         "minimum_lidar_clearance_m": 0.40,
         "narrow_nominal_side_clearance_m": 0.05,
         "narrow_minimum_side_clearance_m": 0.02,
