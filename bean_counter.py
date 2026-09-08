@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-Bean Counter for EBiM Task 3 — queries Isaac Sim stage for bean positions.
+Simulator-only bean diagnostic — queries an Isaac Sim stage for bean positions.
 
-Uses the same approach as the official evaluation:
+This module is excluded from the B2 image and MUST NOT be imported by the
+competition policy or cited as independent evaluation evidence. It is retained
+only for local simulator debugging:
   1. Find all Bean_* prims in the stage
   2. Get their world positions via UsdGeom
   3. Count beans inside the recovery container's sphere region
 
-This is ground-truth accurate — no camera image processing needed.
+It intentionally reads simulator state and is therefore not a perception test.
 """
 
 import math
@@ -27,7 +29,8 @@ def sorted_bean_paths() -> List[str]:
             return []
 
         bean_paths = []
-        for prim in Usd.PrimRange(stage):
+        root = stage.GetPseudoRoot()
+        for prim in Usd.PrimRange(root):
             name = prim.GetName()
             if name.startswith("Bean_") or name.startswith("bean_"):
                 bean_paths.append(str(prim.GetPath()))
