@@ -1,93 +1,123 @@
-# 提交内容 — 复制以下全部内容到 GitHub Issue
+# EBiM Phase II Policy Submission — Task 3
 
-## 操作步骤
+Official form: https://github.com/EBiM-Benchmark/submissions/issues/new/choose
 
-1. 打开链接: https://github.com/EBiM-Benchmark/submissions/issues/new/choose
-2. 选择 "Repository Submission" 表单
-3. 将下面的内容粘贴进去
-4. 提交
+Select **Phase II Policy Submission** and enter the following values.
 
----
+## Title
 
-## 以下为粘贴内容
+`[Phase II] world model — Task 3`
 
-### Team name
+## Team name
 
-world model
+`world model`
 
-### Point-of-contact email
+## Point of Contact email
 
-1373851641@qq.com
+Use the Member 1 email from the team's registration record.
 
-### Task
+## Task
 
-Task 3 — Assisted Living & Feeding
+`Task 3 — Assisted Living & Feeding`
 
-### Link to your public GitHub repository
+## Your assigned Phase II pathway for this task
 
-https://github.com/CHANGCHENGGAO/ebim-world-model
+`Remote — no hands-on session assigned`
 
-### Dockerfile
+## Public GitHub repository URL
 
-Yes — `Dockerfile` in the repository root, based on Isaac Sim 5.1.0 + ROS2 Jazzy.
+`https://github.com/CHANGCHENGGAO/ebim-world-model`
 
-### README
+## Pinned commit SHA
 
-Yes — `README.md` explains how to build and run the autonomous controller:
+`70c744e1a92cf138661ab4b90e94df0a76c950b7`
+
+## Build and run commands
 
 ```bash
-docker build -t ebim-task3 .
-docker run --gpus all --rm -it -p 8090:8090 ebim-task3
-docker exec -it <container_id> python3 /workspace/benchmark/task3_isaacsim/scripts/task3_autonomous.py --stage all
+git clone https://github.com/CHANGCHENGGAO/ebim-world-model.git
+cd ebim-world-model
+git checkout 70c744e1a92cf138661ab4b90e94df0a76c950b7
+docker build --build-arg INSTALL_INTERNAL_VISION=0 -t ebim-task3-b2:phase2 .
+docker run --rm --network host --ipc host ebim-task3-b2:phase2
 ```
 
-### What runs today
+The image entrypoint waits for the required ROS 2 topics and then launches the
+autonomous `onsite_bowl_cup` workflow in `real` mode. It uses the organizer's
+external 3-D object-position topic when available; no keyboard, pedal, GELLO or
+operator command is accepted during a run.
 
-All four stages run fully autonomously and pass at full score (18/18 in development grading; 16/16 official):
+## Environment and dependencies
 
-| Stage | Task | Score | Approach |
-|-------|------|-------|----------|
-| 1 | Table Setup — move dining items from kitchen to dining area | 5/5 (→4 official) | Dual-arm pick-and-place with YOLO vision + IK |
-| 2 | Feed — scoop beans, hold ≥3s, return | 4/4 | Left-arm scoop, 3.5s hold, bean return |
-| 3 | Bean Recovery — transfer beans to recycling bin | 4/4 (100%) | Right-arm pour with base navigation |
-| 4 | Clean Up — return utensils to sink region | 5/5 (→4 official) | Dual-arm return with vision anti-teleport |
+- Base image: `ros:jazzy-ros-base` (Ubuntu 24.04, ROS 2 Jazzy).
+- Python dependencies are installed by the Dockerfile. CPU wheels are pinned to
+  `torch==2.5.1` and `torchvision==0.20.1`; Ultralytics is pinned to `8.3.0`.
+- The build host needs internet access to pull the base image and Python/ROS
+  packages. The container requires no internet or cloud service at run time.
+- The run host must expose the real robot ROS 2 DDS network to the container;
+  therefore the command uses `--network host` and `--ipc host`.
+- The policy uses the organizer-documented Mobile FR3 Duo topic contract in
+  `config/robot_io.json`.
 
-Key technical features:
+## Hardware assumptions
 
-1. YOLO vision detection (ultralytics + Isaac Sim camera) — replaces hardcoded coordinates with real-time object detection
-2. Local LLM planning (Qwen2.5-3B-Instruct GGUF, llama-cpp-python, GPU-accelerated) — optional --policy llm mode for LLM-driven arm selection, 0.2-0.3s inference per call
-3. Diffusion Policy framework — optional --policy diffusion mode with simulated denoising trajectory generation
-4. 4-level fallback chain (hybrid mode) — LLM→hardcoded planning, Diffusion→IK execution, with timeout protection (verified: 5/5 forced fallbacks still pass)
-5. Safety mechanisms — vision anti-teleport (30cm threshold), IK retry with random restarts, out-of-reach detection
+- Target: organizer Mobile FR3 Duo with two Franka FR3 arms, spine, head RGB
+  camera, front/rear LaserScan and swerve base.
+- No GPU or cloud service is required. Navigation uses odometry and LaserScan
+  feedback. Manipulation begins only when a fresh 3-D object-position topic is
+  supplied by the robot-side perception stack.
+- The robot begins at the organizer reset pose, with the base software origin at
+  that start pose. The measured route in `config/robot_io.json` is +0.85 m,
+  -90 degrees, +0.50 m, +1.20 m into the kitchen; after Stage 1, -1.60 m,
+  +1.60 m, +0.70 m left, +1.40 m and -90 degrees for Stages 3/4.
+- The spine is at its highest safe position during narrow-door transit and is
+  lowered to 0.468 m for Stage 1. Arms use submitted safe transit/work poses.
+- Objects may vary within organizer reset regions. The policy detects objects
+  with its own cameras/YOLO, but the base route and arm motion are
+  measured/pre-taught. The dual-LiDAR controller pauses, recentres and retries
+  autonomously, giving up only after 15 bounded recovery attempts.
+- The organizer must reset robot and task objects between rounds according to
+  the official Task 3 procedure.
 
-Policy modes:
-- --policy hardcoded (default, 18/18, zero AI overhead)
-- --policy llm (18/18, LLM arm selection, 0.2-0.3s/call)
-- --policy hybrid (verified fallback, all timeouts gracefully degrade)
+## Does your policy rely on externally provided object poses?
 
-### Environment verification
+`Partly — see Notes`
 
-Isaac Sim 5.1.0 (RTX 4090, headless):
-- ROS2 bridge active (29 topics)
-- Browser controller HTTP 200 on port 8090
-- YOLO detects: plate2, bowl2, spoon2, simple_tray, cup
+## Did you train on the organizer-released trajectory dataset?
 
-MuJoCo 3.12.0:
-- scene_100.xml: OK (bodies=223, geoms=884)
-- scene_300.xml: OK (bodies=423, geoms=1284)
-- 200-step smoke test passed
+`Our own collected data only`
 
-Grading unit tests: 35/35 PASSED
+## What changed since your Phase I submission?
 
-### Optional supplementary links
+The Phase I technical report (#22) has been replaced by a runnable autonomous
+real-robot policy. We added the official ROS 2 contract, measured base route,
+dual-LiDAR/odometry safety with autonomous recovery, internal YOLO perception
+with the final custom checkpoint, fail-closed sensor freshness checks and a
+reduced reliable Task 3 workflow. The policy carries one cup and one bowl in
+Stage 1, deliberately skips the unreliable feeding action, and performs the
+submitted Stage 3/4 cup placement and bowl/bean disposal sequence. VLA/cloud
+inference is not used.
 
-- Technical Report: https://github.com/CHANGCHENGGAO/ebim-world-model/blob/main/Technical_Report_World_model.md
-- Policy module design: https://github.com/CHANGCHENGGAO/ebim-world-model/blob/main/docs/policy_modules_design.md
+## Optional supplementary links
 
-### Notes
+Leave blank. The final model is contained in the pinned public repository.
 
-This submission supersedes our earlier Technical Report submission (Issue #22). The code has since been upgraded from "not yet trained" to a fully working 18/18 autonomous controller with YOLO vision, local LLM planning, and Diffusion Policy framework.
+## Notes
 
-### Acknowledgement
+This issue supersedes Phase I Technical Report issue #22.
 
-- I understand this is a Repository Submission evaluated at full weight (1.0x) against the official scoring rules.
+The pose answer is `Partly` because task-object observations come from the
+robot-side 3-D perception stream, while base and manipulation waypoints are
+measured/pre-taught. There is no motion capture, AprilTag input, simulator
+ground truth, cloud API or operator input during a run.
+
+Stage 2 feeding is intentionally skipped; this is a fixed scoring strategy, not
+an operator-selectable run-time branch. Missing/stale sensors, excessive force
+or unsafe clearance stop motion and trigger bounded autonomous recovery rather
+than requesting human intervention.
+
+## Required checkboxes
+
+Confirm all repository/build statements yourself immediately before filing the
+issue, then tick all four submission-requirement boxes and all three
+acknowledgement boxes. Organizers evaluate exactly the pinned commit above.
