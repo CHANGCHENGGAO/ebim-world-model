@@ -212,6 +212,41 @@ FR3_JOINT_HIGH = np.array([ 2.8973,  1.7628,  2.8973, -0.0698,  2.8973,  3.7525,
 
 HOME_Q = np.array([0.0, -0.5, 0.0, -1.5, 0.0, 1.5, 0.0])
 
+# Curated from the locally recorded Mobile FR3 Duo v3 LeRobot Episode 000000
+# (raw MCAP episode_000001).  The recording begins with a bowl-with-beans in
+# the left gripper and a cup in the right gripper, then disposes the cup and
+# the bowl into the recovery area.  These are deliberately sparse *joint*
+# waypoints, not a blind 30 Hz replay: every transition is smooth, force
+# guarded and must converge before the next one starts.  They are only valid
+# after this policy has independently verified both grasps in the matching
+# kitchen work pose.
+V3_DISPOSAL_KEYFRAMES = (
+    ("demonstration_entry", 4.0,
+     (-1.7094, -0.7896, 1.8129, -2.2500, 1.1744, 1.3796, -1.4067),
+     (1.5544, -0.5824, -1.7797, -2.4260, -1.3359, 1.6427, 1.5811),
+     None),
+    ("cup_transfer", 5.0,
+     (-1.7156, -0.7900, 1.7002, -1.7199, 1.4994, 1.1886, -1.1461),
+     (2.1753, -0.5913, -2.1846, -2.3832, -1.3747, 1.7965, 1.7522),
+     None),
+    ("cup_release_pose", 5.0,
+     (-1.7109, -0.7933, 1.7296, -1.7905, 1.4979, 1.2302, -1.1660),
+     (0.7793, -0.5772, -1.1175, -2.2615, -1.4986, 1.6016, 1.2094),
+     "right"),
+    ("bowl_transfer", 6.0,
+     (-2.4882, -0.9943, 2.6150, -2.1336, 1.5906, 1.8509, -1.9282),
+     (0.5968, -0.5777, -1.0339, -1.8594, -1.5754, 1.7303, 0.3472),
+     None),
+    ("bowl_release_pose", 5.0,
+     (-2.6725, -1.1240, 2.7194, -1.9395, 1.5943, 1.8300, -2.3588),
+     (0.5965, -0.5661, -1.0720, -1.8781, -1.5674, 1.7885, 0.3139),
+     "left"),
+    ("post_release_retreat", 3.0,
+     (-2.4725, -0.9352, 2.5852, -1.9546, 1.6293, 1.8087, -2.1812),
+     (0.6036, -0.5671, -1.0706, -1.9908, -1.5685, 1.7917, 0.3329),
+     None),
+)
+
 
 # ============================================================
 # Kinematics
@@ -1528,40 +1563,19 @@ class Task3Controller(Node):
         if not self.carry_position("both"):
             return fail("carry_pose_failed")
 
-        # One explicitly measured transition: reverse 1.60 m out of the first
-        # work area, skip Stage 2, return 1.60 m, strafe left 0.70 m, approach
-        # the final work area 1.40 m, then rotate clockwise 90 degrees.  Do not
-        # infer this by reversing the inbound route: that would also undo the
-        # door approach and initial turn, which is not the observed field path.
-        if not self._run_relative_leg(route.dining_transition,
-                                      label="stage1_to_stage34"):
-            return fail("navigation_to_stage34_failed")
-
-        container_pose = self._get_vision_pose(
-            "recycling_bin", timeout=self.vision_reacquire_timeout,
-            max_age=self.fine_detection_max_age)
-        if container_pose is None:
-            return fail("missing_fresh_recycling_bin_pose")
-        pour_started = time.monotonic()
-        if not self._pour_and_shake(route.bowl_arm, container_pose[:3], bowl_original):
-            return fail("bean_pour_motion_failed")
-        beans_in_container, observed_after = self._count_fresh_beans_near(
-            (container_pose[0], container_pose[1], container_pose[2] + 0.06),
-            radius=0.20, newer_than=pour_started)
-        if observed_after <= 0 or beans_in_container <= 0:
-            return fail("bean_pour_not_verified_by_fresh_observation")
-
-        if not self.place_closed_loop("bowl", route.bowl_arm, bowl_original, max_retries=2):
-            return fail("bowl_restore_not_verified")
-        if not self.place_closed_loop("cup", route.cup_arm, cup_original, max_retries=2):
-            return fail("cup_restore_not_verified")
+        # The v3 recording is from this real Mobile FR3 Duo and covers the
+        # reliable post-grasp disposal sequence.  It replaces the old invented
+        # base detour and unvalidated bean-count gate.  Scoring remains solely
+        # the organizer's observation, never this controller's return value.
+        if not self.replay_v3_disposal_after_verified_grasp():
+            return fail("v3_demo_disposal_failed")
         if not self.go_home(duration=1.0):
             return fail("arm_home_pose_failed")
 
         return {
             "stage": "onsite_bowl_cup", "status": "completed", "score": 0,
             "max_score": 0, "official_score": False,
-            "beans_in_container": beans_in_container,
+            "demonstration_source": "franka_duo_lerobot_v3/episode_000000",
             "safe": self._safe_stop_reason is None,
         }
 
@@ -1629,6 +1643,45 @@ class Task3Controller(Node):
         left = carry_q if arm in ("left", "both") else None
         right = carry_q if arm in ("right", "both") else None
         return self._interpolate_move(left, right, duration=1.5)
+
+    def replay_v3_disposal_after_verified_grasp(self):
+        """Dispose the verified bowl/cup using a real-robot demonstration.
+
+        This is intentionally a narrow fallback for the simplified strategy,
+        not a general purpose trajectory player.  It is called only after the
+        existing perception-driven grasp routine has independently verified a
+        bowl and cup.  The force watchdog, joint convergence checks and
+        explicit gripper feedback remain active for every keyframe.
+        """
+        if self.robot_mode != "real":
+            self.get_logger().error("V3 disposal demonstration is real-robot only")
+            return False
+        if os.environ.get("STAGE3_DEMO_ENABLED", "1") != "1":
+            self.get_logger().warn("Stage 3 demonstration disabled by environment")
+            return False
+        if not (self._is_gripper_at_target("left", require_open=False) and
+                self._is_gripper_at_target("right", require_open=False)):
+            self.get_logger().error(
+                "Refusing V3 disposal: both grippers must report a verified closed grasp")
+            return False
+
+        self.get_logger().info(
+            "[V3Demo] running force-guarded cup/bowl disposal keyframes "
+            "from real LeRobot Episode 000000")
+        for label, duration, left_q, right_q, release_arm in V3_DISPOSAL_KEYFRAMES:
+            self.get_logger().info(f"  [V3Demo] {label}")
+            if not self._interpolate_move(
+                    np.asarray(left_q, dtype=float), np.asarray(right_q, dtype=float),
+                    duration=duration):
+                self.get_logger().error(f"  [V3Demo] aborted at {label}")
+                return False
+            if release_arm is not None:
+                self.get_logger().info(f"  [V3Demo] releasing {release_arm} object")
+                if not self.open_gripper(release_arm):
+                    self.get_logger().error(
+                        f"  [V3Demo] {release_arm} release feedback was not confirmed")
+                    return False
+        return True
 
     # ============================================================
     # Closed-loop action primitives: detect → align → approach → execute → verify → retry

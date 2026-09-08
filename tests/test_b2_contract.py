@@ -16,7 +16,12 @@ from b2_contract import (
     stale_keys,
     transform_point,
 )
-from task3_autonomous import seat_pose_from_observation
+from task3_autonomous import (
+    FR3_JOINT_HIGH,
+    FR3_JOINT_LOW,
+    V3_DISPOSAL_KEYFRAMES,
+    seat_pose_from_observation,
+)
 from yolo_detector import TASK3_CLASSES, missing_task3_classes
 from vision_callback import OBJECT_CLASSES
 
@@ -107,6 +112,19 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(TASK3_CLASSES, expected)
         self.assertEqual(missing_task3_classes(expected), [])
         self.assertEqual(missing_task3_classes(["plate", "cup"]), expected[2:])
+
+    def test_v3_disposal_keyframes_are_bounded_and_release_each_object(self):
+        self.assertGreaterEqual(len(V3_DISPOSAL_KEYFRAMES), 4)
+        released = []
+        for _, duration, left, right, release_arm in V3_DISPOSAL_KEYFRAMES:
+            self.assertGreater(duration, 0.0)
+            for joints in (left, right):
+                self.assertEqual(len(joints), 7)
+                self.assertTrue(((FR3_JOINT_LOW <= joints) &
+                                 (joints <= FR3_JOINT_HIGH)).all())
+            if release_arm is not None:
+                released.append(release_arm)
+        self.assertEqual(released, ["right", "left"])
 
     def test_stale_keys_are_fail_closed(self):
         self.assertEqual(stale_keys(("joint", "vision"), {"joint": 10.0}, 10.5, 1.0), ("vision",))
