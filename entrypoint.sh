@@ -1,74 +1,117 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+source /opt/ros/jazzy/setup.bash
+
+export ROS_HOME="${ROS_HOME:-/tmp/ebim_ros_home}"
+export PYTHONPATH="/workspace/submission:${PYTHONPATH:-}"
+
+ROBOT_MODE="${ROBOT_MODE:-real}"
+POLICY_MODE="${POLICY_MODE:-closed_loop}"
+WORKFLOW="${WORKFLOW:-onsite_bowl_cup}"
+AUTONOMOUS_ONLY="${AUTONOMOUS_ONLY:-1}"
+SENSOR_TIMEOUT="${SENSOR_TIMEOUT:-30}"
+ROBOT_IO_CONFIG="${ROBOT_IO_CONFIG:-/workspace/submission/config/robot_io.json}"
+VISION_BACKEND="${VISION_BACKEND:-auto}"
+ALLOW_UNCONFIRMED_IO="${ALLOW_UNCONFIRMED_IO:-0}"
+VISION_PID=""
+
+cleanup() {
+    local status=$?
+    trap - EXIT INT TERM
+    if [[ -n "$VISION_PID" ]] && kill -0 "$VISION_PID" 2>/dev/null; then
+        kill -TERM "$VISION_PID" 2>/dev/null || true
+        wait "$VISION_PID" 2>/dev/null || true
+    fi
+    exit "$status"
+}
+trap cleanup EXIT INT TERM
+
+case "$ROBOT_MODE" in
+    sim|real) ;;
+    *) echo "FATAL: ROBOT_MODE must be sim or real, got '$ROBOT_MODE'" >&2; exit 64 ;;
+esac
+
+case "$WORKFLOW" in
+    full_task3|onsite_bowl_cup) ;;
+    *) echo "FATAL: WORKFLOW must be full_task3 or onsite_bowl_cup, got '$WORKFLOW'" >&2; exit 64 ;;
+esac
+if [[ "$WORKFLOW" == "onsite_bowl_cup" && "$ROBOT_MODE" != "real" ]]; then
+    echo "FATAL: onsite_bowl_cup is a real-robot calibration workflow" >&2
+    exit 64
+fi
+
+export AUTONOMOUS_ONLY POLICY_MODE
+python3 /workspace/submission/autonomy_guard.py \
+    --policy-file /workspace/submission/task3_autonomous.py \
+    --launch-file "$0" --json
+
+CONTRACT_ARGS=(--config "$ROBOT_IO_CONFIG" --mode "$ROBOT_MODE")
+if [[ "$ALLOW_UNCONFIRMED_IO" == "1" ]]; then
+    CONTRACT_ARGS+=(--allow-unconfirmed)
+fi
+
+python3 /workspace/submission/b2_contract.py "${CONTRACT_ARGS[@]}" >/tmp/ebim_contract.json
+
+echo "============================================"
+echo "  EBiM Task 3 — B2 policy container"
+echo "  ROBOT_MODE=$ROBOT_MODE POLICY_MODE=$POLICY_MODE WORKFLOW=$WORKFLOW"
+echo "  VISION_BACKEND=$VISION_BACKEND"
+echo "  ROBOT_IO_CONFIG=$ROBOT_IO_CONFIG"
+echo "============================================"
+
+if [[ "$VISION_BACKEND" == "internal" ]] || \
+   { [[ "$VISION_BACKEND" == "auto" ]] && [[ -f "${VISION_MODEL_PATH:-}" ]]; }; then
+    if [[ ! -f "${VISION_MODEL_PATH:-}" ]]; then
+        echo "FATAL: internal vision requires a validated Task 3 checkpoint at VISION_MODEL_PATH; refusing generic YOLO fallback" >&2
+        exit 66
+    fi
+    echo "[vision] starting internal perception"
+    python3 /workspace/submission/vision_callback.py \
+        --robot-mode "$ROBOT_MODE" \
+        --config "$ROBOT_IO_CONFIG" \
+        --model-path "${VISION_MODEL_PATH:-}" &
+    VISION_PID=$!
+elif [[ "$VISION_BACKEND" == "external" ]] || [[ "$VISION_BACKEND" == "auto" ]]; then
+    echo "[vision] waiting for external perception publisher"
+else
+    echo "FATAL: VISION_BACKEND must be auto, internal or external" >&2
+    exit 64
+fi
+
+mapfile -t REQUIRED_TOPICS < <(
+    python3 /workspace/submission/b2_contract.py \
+        "${CONTRACT_ARGS[@]}" --print-required-topics
+)
+
+for topic in "${REQUIRED_TOPICS[@]}"; do
+    echo "[readiness] waiting for $topic"
+    if ! timeout "$SENSOR_TIMEOUT" bash -c \
+        'topic="$1"; until ros2 topic list 2>/dev/null | grep -Fxq "$topic"; do sleep 0.5; done' \
+        _ "$topic"; then
+        echo "FATAL: required topic '$topic' unavailable after ${SENSOR_TIMEOUT}s" >&2
+        exit 70
+    fi
+    if [[ -n "$VISION_PID" ]] && ! kill -0 "$VISION_PID" 2>/dev/null; then
+        echo "FATAL: internal vision process exited during readiness" >&2
+        wait "$VISION_PID" || true
+        exit 71
+    fi
+done
+
+echo "[controller] all required topics discovered; starting policy"
+set +e
+python3 /workspace/submission/task3_autonomous.py \
+    --stage "${STAGE:-all}" \
+    --workflow "$WORKFLOW" \
+    --policy "$POLICY_MODE" \
+    --robot-mode "$ROBOT_MODE" \
+    --config "$ROBOT_IO_CONFIG" \
+    --sensor-timeout "$SENSOR_TIMEOUT"
+status=$?
 set -e
 
-source /opt/ros/jazzy/setup.bash
-
-export ROS_DISTRO=jazzy
-export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-export FASTDDS_BUILTIN_TRANSPORTS=UDPv4
-export ROS_HOME=/tmp/isaac_ros_home
-
-# Optional LLM / Diffusion policy config
-# Set these if using --policy llm/diffusion/hybrid
-export LLM_MODEL_PATH=${LLM_MODEL_PATH:-/root/models/qwen2.5-3b-instruct-q4_k_m.gguf}
-export LLM_N_CTX=${LLM_N_CTX:-2048}
-export LLM_N_GPU_LAYERS=${LLM_N_GPU_LAYERS:--1}
-export DIFFUSION_MODEL_PATH=${DIFFUSION_MODEL_PATH:-}
-export POLICY_TIMEOUT=${POLICY_TIMEOUT:-5.0}
-
-# Isaac Sim uses Python 3.11; ROS2 Jazzy ships rclpy for 3.12.
-# Use the internal rclpy bundled with the isaacsim.ros2.bridge extension.
-export LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib:${LD_LIBRARY_PATH}
-export PYTHONPATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/rclpy:${PYTHONPATH}
-
-cd /workspace/benchmark/task3_isaacsim/scripts
-
-echo "Starting EBiM Task 3 environment..."
-echo "Arguments: $@"
-
-# Start Isaac Sim Task 3 scene (dynamic beans enabled by default)
-/isaac-sim/python.sh scene_room.py \
-    --gripper "${GRIPPER:-robotiq}" \
-    --robot-usd /workspace/benchmark/task1_isaacsim/assets/Robotiq_2f_85_with_d405_mobile_fr3_duo_v0_2.usd \
-    --room-usd /workspace/benchmark/assets/robot_room.usd \
-    --head-placement "${HEAD_PLACEMENT:-A}" \
-    --headless \
-    --franka-root /workspace/benchmark/task1_isaacsim \
-    --physics-hz 120 \
-    --render-hz 30 &
-ISAAC_PID=$!
-
-echo "Isaac Sim PID: $ISAAC_PID"
-echo "Waiting for Isaac Sim to start..."
-sleep 30
-
-# Start ROS Joint Republisher
-source /opt/ros/jazzy/setup.bash
-export PYTHONPATH=/workspace/benchmark/task1_isaacsim/scripts:${PYTHONPATH}
-python3 /workspace/benchmark/task1_isaacsim/scripts/controllers/ros_joint_republisher.py \
-    --bridge-prefix /bridge \
-    --isaac-prefix /isaac \
-    --gripper-open-position 0.0 \
-    --gripper-closed-position 0.8 &
-REPUBLISHER_PID=$!
-
-sleep 2
-
-# Start Browser Controller
-export PYTHONPATH=/workspace/benchmark/task1_isaacsim/scripts:/workspace/benchmark/task1_isaacsim/services/browser_controller:${PYTHONPATH}
-cd /workspace/benchmark/task1_isaacsim/services/browser_controller
-python3 app.py --host 0.0.0.0 --port 8090 --publish-rate 60.0 &
-BROWSER_PID=$!
-
-echo ""
-echo "============================================"
-echo "  EBiM Task 3 Environment Ready"
-echo "============================================"
-echo "  Browser Controller: http://localhost:8090"
-echo "  Isaac Sim PID: $ISAAC_PID"
-echo "  Republisher PID: $REPUBLISHER_PID"
-echo "  Browser PID: $BROWSER_PID"
-echo "============================================"
-echo ""
-
-wait $ISAAC_PID
+if [[ "$status" -ne 0 ]]; then
+    echo "FATAL: controller exited with status $status" >&2
+fi
+exit "$status"

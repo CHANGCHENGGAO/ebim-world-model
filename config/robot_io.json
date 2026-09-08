@@ -1,0 +1,218 @@
+{
+  "schema_version": 1,
+  "modes": {
+    "sim": {
+      "confirmed": true,
+      "note": "Confirmed against official EBiM benchmark topics.yaml (task2_isaacsim/config/topics.yaml). Gripper range 0.0=open to 0.8=closed per gripper_profiles.py.",
+      "world_frame": "world",
+      "nav_targets": {
+        "home": [-4.6, 2.7, -90.0],
+        "kitchen": [-4.2, -1.8, -90.0],
+        "sink": [-5.0, -2.1, -90.0],
+        "dining": [-2.85, 1.9, -90.0]
+      },
+      "onsite_bowl_cup_route": {
+        "enabled": false,
+        "note": "Reserved for the real TMR calibration workflow. Do not enable in Isaac; fill only measured real odometry values onsite.",
+        "bowl_arm": "right",
+        "cup_arm": "left",
+        "minimum_lidar_clearance_m": 0.75
+      },
+      "task3_regions": {
+        "kitchen_area": {"center_x": -4.2, "center_y": -1.8, "scale_x": 3.2, "scale_y": 4.1},
+        "dining_area": {"center_x": -2.85, "center_y": 1.9, "scale_x": 5.9, "scale_y": 3.4}
+      },
+      "task3_objects": ["simple_tray", "bowl2", "spoon2", "plate2", "cup"],
+      "task3_feed_hold_seconds": 3.0,
+      "task3_head_placements": ["A", "B", "C", "D", "E", "F", "G", "H", "I"],
+      "gripper_uses_float": false,
+      "base_command_type": "pedal_string",
+      "vision_3d_available": true,
+      "obstacle_safety_required": false,
+      "gripper_command_open": 0.0,
+      "gripper_command_closed": 0.8,
+      "gripper_feedback_open": 0.0,
+      "gripper_feedback_closed": 0.8,
+      "limits": {
+        "force_stop_threshold_n": 20.0,
+        "force_contact_threshold_n": 5.0,
+        "force_feeding_threshold_n": 3.0,
+        "force_warning_threshold_n": 10.0,
+        "joint_velocity_limit_rad_per_s": 0.8,
+        "feeding_velocity_limit_rad_per_s": 0.15,
+        "gripper_velocity_limit_per_s": 0.15
+      },
+      "safety_note": "Calibrated from Task2 real robot data. Normal force ~5N, P95=10.5N, P99=13N. Feeding stage uses 3N threshold. Original 140N was too high.",
+      "required_topic_keys": [
+        "left_arm_state",
+        "right_arm_state",
+        "left_gripper_state",
+        "right_gripper_state",
+        "left_wrench",
+        "right_wrench",
+        "odom",
+        "vision_objects"
+      ],
+      "optional_topic_keys": [
+        "force_torque",
+        "vision_beans"
+      ],
+      "static_required_topic_keys": [],
+      "topics": {
+        "left_arm_cmd": "/isaac/left_joint_commands",
+        "right_arm_cmd": "/isaac/right_joint_commands",
+        "left_arm_state": "/isaac/left_joint_states",
+        "right_arm_state": "/isaac/right_joint_states",
+        "left_gripper_cmd": "/isaac/left_robotiq_joint_commands",
+        "right_gripper_cmd": "/isaac/right_robotiq_joint_commands",
+        "left_gripper_state": "/isaac/left_robotiq_joint_states",
+        "right_gripper_state": "/isaac/right_robotiq_joint_states",
+        "pedal_cmd": "/pedal/state",
+        "base_cmd": "/pedal/state",
+        "force_torque": "/isaac/force_torque",
+        "left_wrench": "/isaac/left_ee_wrench",
+        "right_wrench": "/isaac/right_ee_wrench",
+        "odom": "/isaac/odom",
+        "vision_objects": "/vision/object_positions",
+        "vision_beans": "/vision/bean_positions",
+        "head_rgb": "/isaac/head_camera/image_raw",
+        "head_depth": "/isaac/head_camera/depth",
+        "head_camera_info": "/isaac/head_camera/camera_info",
+        "left_wrist_rgb": "/isaac/left_wrist_camera/image_raw",
+        "left_wrist_depth": "/isaac/left_wrist_camera/depth",
+        "left_wrist_camera_info": "/isaac/left_wrist_camera/camera_info",
+        "right_wrist_rgb": "/isaac/right_wrist_camera/image_raw",
+        "right_wrist_depth": "/isaac/right_wrist_camera/depth",
+        "right_wrist_camera_info": "/isaac/right_wrist_camera/camera_info",
+        "front_lidar": "/lidar_front/scan",
+        "rear_lidar": "/lidar_rear/scan"
+      }
+    },
+    "real": {
+      "confirmed": true,
+      "note": "Confirmed against the organizer-provided 28-topic MCAP reference plus the Franka ROS 2 Mobile FR3 Duo documentation. The autonomous policy publishes programmatic JointState targets to the documented GELLO-shaped arm input topics; no human GELLO/keyboard/pedal input is used.",
+      "data_source": "ebim-benchmark/ebim_task2_realrobotdata (task2_munich), 7 episodes analyzed",
+      "world_frame": "world",
+      "nav_targets": {
+        "home": [-4.6, 2.7, -90.0],
+        "kitchen": [-5.0, -1.3, -90.0],
+        "sink": [-5.0, -2.1, -90.0]
+      },
+      "onsite_bowl_cup_route": {
+        "enabled": true,
+        "note": "Autonomous relative-odom route. All measured motions are recorded, including the estimated 1.40 m final approach. Runtime still fails closed unless every required sensor topic is fresh. Values are relative to the odom pose when the workflow starts; they are not map coordinates.",
+        "bowl_arm": "right",
+        "cup_arm": "left",
+        "minimum_lidar_clearance_m": 0.40,
+        "narrow_nominal_side_clearance_m": 0.05,
+        "narrow_minimum_side_clearance_m": 0.02,
+        "narrow_center_tolerance_m": 0.02,
+        "recovery_attempts": 15,
+        "recovery_wait_seconds": 2.0,
+        "base_settle_seconds": 3.0,
+        "base_motion_calibration": {
+          "source": "EBiM Task1 real robot LeRobot Part1+Part2, 50 episodes, 352655 frames at 20Hz",
+          "linear_x_positive": "forward",
+          "linear_y_positive": "left",
+          "angular_z_positive": "counterclockwise",
+          "requires_first_run_sign_confirmation": false,
+          "linear_stop_latency_p95_seconds": 1.95,
+          "linear_coast_p95_m": 0.069,
+          "linear_coast_p99_m": 0.101
+        },
+        "start_to_kitchen": [
+          {"name": "leave_start", "axis": "forward", "distance": 0.85, "speed": 0.10},
+          {"name": "face_kitchen_door", "axis": "rotate", "distance": -90.0, "speed": 12.0},
+          {"name": "approach_door", "axis": "forward", "distance": 0.50, "speed": 0.08},
+          {"name": "door_to_table_standoff", "axis": "forward", "distance": 1.20, "speed": 0.06, "narrow_passage": true}
+        ],
+        "dining_transition": [
+          {"name": "exit_kitchen_after_stage1", "axis": "forward", "distance": -1.60, "speed": 0.06},
+          {"name": "skip_stage2_return_forward", "axis": "forward", "distance": 1.60, "speed": 0.06},
+          {"name": "shift_left_toward_leg2", "axis": "strafe", "distance": 0.70, "speed": 0.05},
+          {"name": "approach_leg3_final_work_area", "axis": "forward", "distance": 1.40, "speed": 0.05},
+          {"name": "face_stage34_work_area", "axis": "rotate", "distance": -90.0, "speed": 8.0}
+        ],
+        "table_leg_tracking": {
+          "enabled": true,
+          "note": "Enabled with the official TMRv0.2 static transform; the front LaserScan frame is not axis-aligned, so scan points are transformed by the configured +45 degree offset/sign and sensor origin. Narrow-door safety uses 5 cm nominal body-side clearance and the 0.16 m table standoff.",
+          "front_lidar_frame_aligned_with_base": false,
+          "front_lidar_transform_confirmed_from_official_urdf": true,
+          "source": "Franka official TMRv0.2 URDF/Xacro",
+          "sensor_origin_x_m": 0.3275,
+          "sensor_origin_y_m": 0.2175,
+          "scan_angle_offset_deg": 45.0,
+          "scan_angle_sign": -1.0,
+          "body_front_x_m": 0.40,
+          "body_half_width_m": 0.29,
+          "body_front_from_lidar_m": 0.0725,
+          "body_to_leg_clearance_m": 0.16,
+          "leg_separation_min_m": 0.30,
+          "leg_separation_max_m": 1.40,
+          "max_leg_depth_difference_m": 0.15,
+          "max_leg_cluster_diameter_m": 0.16
+        }
+      },
+      "gripper_uses_float": true,
+      "base_command_type": "twist_stamped",
+      "vision_3d_available": false,
+      "obstacle_safety_required": true,
+      "gripper_command_open": 1.0,
+      "gripper_command_closed": 0.207,
+      "gripper_feedback_open": 1.0,
+      "gripper_feedback_closed": 0.207,
+      "gripper_note": "From real robot data: action[7]=left grip (always 1.0=open), action[15]=right grip (0.207=closed ~ 1.0=open). Normalized 0-1 range, NOT 0-100 percent. Confirm on-site whether ROS topic uses same scale or percent.",
+      "limits": {
+        "force_stop_threshold_n": 20.0,
+        "force_contact_threshold_n": 5.0,
+        "force_feeding_threshold_n": 3.0,
+        "force_warning_threshold_n": 10.0,
+        "joint_velocity_limit_rad_per_s": 0.8,
+        "feeding_velocity_limit_rad_per_s": 0.15,
+        "gripper_velocity_limit_per_s": 0.15
+      },
+      "safety_note": "Calibrated from Task2 real robot data (30 episodes). Normal force ~5N, P95=10.5N, P99=13N. Feeding stage uses lower threshold (3N) for oral contact. Original 140N was way too high.",
+      "wrench_note": "6D wrench (fx,fy,fz,tx,ty,tz) in stiffness frame confirmed. Max observed force ~21N across 7 episodes. Both arms have independent wrench topics.",
+      "action_format_note": "LeRobot action vector is 17-dim: [0:7]=left joints, [7]=left gripper, [8:15]=right joints, [15]=right gripper, [16]=constant 434.0 (likely pedal/base config, not a variable command).",
+      "required_topic_keys": [
+        "left_arm_state",
+        "right_arm_state",
+        "left_gripper_state",
+        "right_gripper_state",
+        "left_wrench",
+        "right_wrench",
+        "odom",
+        "vision_objects",
+        "front_lidar",
+        "rear_lidar"
+      ],
+      "optional_topic_keys": [
+        "force_torque",
+        "vision_beans"
+      ],
+      "static_required_topic_keys": [],
+      "topics": {
+        "left_arm_cmd": "/left/gello/joint_states",
+        "right_arm_cmd": "/right/gello/joint_states",
+        "left_arm_state": "/left/franka_robot_state_broadcaster/measured_joint_states",
+        "right_arm_state": "/right/franka_robot_state_broadcaster/measured_joint_states",
+        "left_gripper_cmd": "/left/gripper/gripper_client/target_gripper_width_percent",
+        "right_gripper_cmd": "/right/gripper/gripper_client/target_gripper_width_percent",
+        "left_gripper_state": "/left/gripper/joint_states",
+        "right_gripper_state": "/right/gripper/joint_states",
+        "base_cmd": "/swerve_drive_controller/cmd_vel",
+        "force_torque": "/left/franka_robot_state_broadcaster/external_wrench_in_stiffness_frame",
+        "left_wrench": "/left/franka_robot_state_broadcaster/external_wrench_in_stiffness_frame",
+        "right_wrench": "/right/franka_robot_state_broadcaster/external_wrench_in_stiffness_frame",
+        "odom": "/swerve_drive_controller/odom",
+        "vision_objects": "/vision/object_positions",
+        "vision_beans": "/vision/bean_positions",
+        "head_rgb": "/head_camera/zed_node/rgb/color/rect/image",
+        "left_wrist_rgb": "/wrist_camera_left/camera/color/image_raw",
+        "right_wrist_rgb": "/wrist_camera_right/camera/color/image_raw",
+        "front_lidar": "/lidar_front/scan",
+        "rear_lidar": "/lidar_rear/scan"
+      }
+    }
+  }
+}

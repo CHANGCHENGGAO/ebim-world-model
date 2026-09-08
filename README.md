@@ -1,208 +1,210 @@
-# EBiM Challenge 2026 — Team "world model"
+# EBiM Phase II Task 3 — B2 release candidate
 
-**Track**: Task 3 — Assisted Living & Feeding
-**Submission type**: Repository Submission (Dockerfile + autonomous controller)
-**Score**: 18/18 (development grading) / 16/16 (official)
-**Completion time**: 5 min 33 sec (optimized from 9 min 00 sec, −38%)
+This directory contains the remote-submission policy container for Task 3. It
+connects to an externally started simulator or robot through ROS 2; it does not
+package the organizer's scene, robot assets, or evaluation service.
 
----
+No official score is claimed. Controller-reported stage results are telemetry,
+not evaluation evidence. Final scoring must use observations recorded outside
+the controller and the organizer-confirmed evaluation geometry.
 
-## What's in this repo
+## Primary design
 
-| File | Description |
+The default and only enabled policy is `closed_loop`: fresh RGB-D detections,
+odometry, measured arm/gripper state, and wrench feedback drive deterministic
+motion primitives. Unknown or stale state fails closed. The normal policy does
+not read USD/PhysX scene truth and never substitutes fixed object poses.
+
+VLA, LLM planning, Diffusion Policy, and a learned world model are deliberately
+excluded from this release candidate. The August 30 trajectory can be evaluated
+as an optional single-skill learner after B2 replay works, but it must not replace
+the verified controller unless it passes the same postconditions and safety
+tests. A generative world model is out of scope for this submission window.
+
+## Runtime components
+
+| Path | Purpose |
 |---|---|
-| `Dockerfile` | Docker image with Isaac Sim 5.1.0 + ROS2 Jazzy for Task 3 |
-| `entrypoint.sh` | Container entrypoint — starts Isaac Sim, ROS republisher, and browser controller |
-| `task3_autonomous.py` | Autonomous four-stage controller v4 with YOLO vision, bimanual coordination, safety monitoring, ground-truth bean counting, and LLM/Diffusion Policy optional modules |
-| `vision_callback.py` | YOLOv8 object detection + ground-truth bean stage query + Isaac Sim camera integration |
-| `bean_counter.py` | Ground-truth bean counting via Isaac Sim stage prim traversal (matches official eval method) |
-| `policy_manager.py` | Unified policy entry point with 4-level fallback chain |
-| `llm_planner.py` | Local LLM planner (Qwen2.5-3B GGUF, llama-cpp-python, GPU-accelerated) |
-| `diffusion_policy.py` | Diffusion Policy trajectory generation framework |
-| `scene_room.py` | Isaac Sim scene loader with vision callback integration |
-| `Technical_Report_World_model.md` | Full technical report |
-| `verification.log` | Environment verification log |
-| `docs/` | Design documents and evaluation reports |
+| `task3_autonomous.py` | Four-stage closed-loop controller and safe-stop watchdog |
+| `vision_callback.py` | Custom-model head/wrist RGB-D perception with camera-to-world TF |
+| `b2_contract.py` | Strict sim/real topic, navigation, frame, and limit contract validation |
+| `config/robot_io.json` | Single source for the current interface assumptions |
+| `b2_evaluator.py` | Score-blind evaluator for external episode observations |
+| `entrypoint.sh` | Contract check, topic discovery, perception lifecycle, controller launch |
+| `models/README.md` | Offline custom detector requirements |
 
-## Quick Start
+`bean_counter.py`, `llm_planner.py`, `diffusion_policy.py`, and
+`policy_manager.py` are development artifacts and are not copied into the B2
+image or used by the default policy.
 
-### Docker (recommended)
+## Fail-closed contract
+
+`real` is the default competition contract. It is aligned with the organizer's
+28-topic MCAP inventory and Franka's Mobile FR3 Duo ROS 2 documentation. The
+default workflow is the autonomous reduced route `onsite_bowl_cup`: carry only
+the bowl and cup, omit feeding, then perform bean recovery and cleanup at the
+final station. `sim` remains selectable for development.
+
+`ALLOW_UNCONFIRMED_IO=1` is for local bench work only. It is not an acceptable
+competition setting.
+
+At runtime the controller also requires fresh:
+
+- left/right arm state and measured gripper state;
+- left/right wrench feedback;
+- odometry;
+- organizer-provided target-seat pose;
+- world-frame perception output.
+
+A missing or stale required stream latches safe stop, publishes a base stop and
+arm hold, terminates the stage, and produces a non-zero process exit. Perception
+failure never falls back to the dry-run fixture coordinates.
+
+The default coarse object-pose freshness window is 3.0 seconds
+(`DETECTION_MAX_AGE=3.0`). The controller may wait up to 12 seconds to reacquire
+a target (`VISION_REACQUIRE_TIMEOUT=12.0`), but immediately before final grasp
+approach or pouring it requires an observation no older than 0.8 seconds
+(`FINE_DETECTION_MAX_AGE=0.8`). A cached pose never authorizes blind contact
+motion; measured-state and force checks remain active.
+
+## Detector contract
+
+Internal perception requires a Task 3 detector at
+`models/ebim_task3.pt` or a mounted path selected with
+`VISION_MODEL_PATH`. The runtime never downloads a model. Required classes are
+documented in `vision_callback.py`; default COCO weights are not sufficient for
+beans and competition-specific fixtures.
+
+An external perception node may instead publish the configured object and bean
+topics with world-frame coordinates, confidence encoded in each name, and valid
+message timestamps. Select it with `VISION_BACKEND=external`.
+
+## Official ROS 2 mapping status
+
+The supplied ROS 2 inventory is reflected in `config/robot_io.json` for real
+mode: autonomous base commands use `/swerve_drive_controller/cmd_vel`
+(`TwistStamped`), odometry uses `/swerve_drive_controller/odom`, gripper target
+commands use `Float32`, and front/rear LiDAR use `/lidar_front/scan` and
+`/lidar_rear/scan`. Navigation uses directional scan sectors and the official
+TMRv0.2 sensor transforms. Ordinary clearance is 0.40 m; the measured narrow
+passage uses 0.05 m nominal and 0.02 m minimum side clearance. A transient
+non-contact block triggers autonomous stop/re-observe recovery up to 15 times;
+force and hardware safety stops remain latched.
+
+## InnoHub autonomous robustness readiness
+
+The official InnoHub special award runs the submitted Task 3 policy in
+simulation with the organizer-side `plus` flag.  This submission accepts no
+keyboard, GELLO, or pedal *human input*.  Autonomous base commands may still
+be published through the simulator's existing command bridge.
+
+`entrypoint.sh` requires `AUTONOMOUS_ONLY=1` and runs
+`autonomy_guard.py` before ROS startup.  It rejects enabled keyboard/GELLO
+teleoperation environment switches, controller subscriptions to pedal/keyboard/GELLO
+input, and actual ROS/Python teleop helper launches in the entrypoint. Do not set
+any `WITH_*_TELEOP` variable in a competition launch.
+
+The detector now measures exposure quality and applies adaptive gamma before
+CLAHE.  Nearly black, nearly saturated, or no-contrast frames are discarded;
+the existing perception freshness watchdog then stops motion rather than
+acting on unreliable observations.
+
+`navigation_safety.py` and `robustness_matrix.py` provide a fail-closed,
+interface-independent contract for the three `plus` ground obstacles
+(`cable`, `book`, `ball`) and the official 10-point matrix.  The organizer has
+not yet published the corresponding topic/prim interface, so these modules do
+not guess a topic name.  On release day, connect its adapter to
+`plan_safe_path()` and archive the 4-lighting × 4-stage and
+3-obstacle × 4-stage results. `robustness_matrix.py --evidence evidence.json`
+rejects incomplete matrices, so only complete external observations may be used
+to report an award-score result.
+
+## Local checks
+
+For the real-robot, reduced bowl/cup calibration workflow (not an official
+four-stage score), follow [the onsite autonomous navigation guide](docs/ONSITE_AUTONOMOUS_NAVIGATION_CN.md).
+
+These checks do not require ROS or the organizer simulator:
 
 ```bash
-# Build
-docker build -t ebim-task3 .
-
-# Run headless
-docker run --gpus all --rm -it \
-  -p 8090:8090 \
-  -e GRIPPER=robotiq \
-  -e HEAD_PLACEMENT=A \
-  ebim-task3
-
-# Run all four stages autonomously (default: hardcoded policy, safest)
-docker exec -it <container_id> python3 /workspace/benchmark/task3_isaacsim/task3_autonomous.py --stage all
-
-# With LLM planning (optional, requires GGUF model)
-docker exec -it <container_id> python3 /workspace/benchmark/task3_isaacsim/task3_autonomous.py --stage all --policy llm
+python3 -m unittest discover -s tests -v
+python3 task3_autonomous.py --dry-run --stage all --policy closed_loop
+bash -n entrypoint.sh
+python3 b2_contract.py --config config/robot_io.json --mode sim --allow-unconfirmed
+python3 autonomy_guard.py --policy-file task3_autonomous.py --json
 ```
 
-### Policy modes
-
-| Mode | Planning | Execution | Overhead | Score |
-|------|----------|-----------|----------|-------|
-| `hardcoded` (default) | Hardcoded | IK | Zero | 18/18 |
-| `llm` | Local LLM | IK | 0.2-0.3s/call | 18/18 |
-| `diffusion` | Hardcoded | Diffusion | Low | 18/18 |
-| `hybrid` | LLM → Hardcoded fallback | Diffusion → IK fallback | Variable | 18/18 (verified) |
+Before any on-site or Isaac Sim policy launch, run the read-only bridge check.
+It creates no publisher and sends no motion command:
 
 ```bash
-# Force LLM timeout to test fallback chain
-POLICY_TIMEOUT=0.05 python3 task3_autonomous.py --stage all --policy hybrid
+python3 onsite_preflight.py --mode sim
+# At the physical test platform (published state/sensor contract only):
+python3 onsite_preflight.py --mode real
+# Offline regression example:
+python3 onsite_preflight.py --snapshot tests/fixtures/task3_sim_bridge_topics.json
 ```
 
-## Four-Stage Autonomous Controller
+The check covers the official shared Task 2/Task 3 arm, Robotiq gripper and
+`/pedal/state` bridge topics. It intentionally does not declare perception,
+target-seat, or Task 3 scoring topics ready; those remain separate policy
+readiness requirements.
 
-| Stage | Task | Score (dev) | Score (official) | Key features |
-|-------|------|-------------|-----------------|--------------|
-| 1 | Table Setup — move 5 dining items to Dining Area | 5/5 | 4/4 | YOLO vision, dual-arm pick-and-place, anti-teleport check |
-| 2 | Feed — scoop beans, hold ≥3s, return | 4/4 | 4/4 | **Bimanual coordination** (right arm steadies bowl, left arm scoops), 3.5s hold with safety monitoring |
-| 3 | Bean Recovery — pour beans into recycling container | 4/4 | 4/4 | Improved pouring motion (lower → tilt → shake → lift), bean recovery estimation |
-| 4 | Clean Up — return 5 utensils to sink region | 5/5 | 4/4 | Dual-arm return, vision-guided placement |
+The evaluator consumes observations exported from rosbag/video annotation and
+ignores any score field emitted by the controller:
 
-## Technical Highlights
-
-### 1. Bimanual Coordination (Stage 2)
-Right arm grips and steadies the bowl while left arm scoops beans and feeds. Matches the official task description: *"one arm holds the spoon, one steadies the bowl"*.
-
-```
-Right arm: approach bowl → grip → steady (throughout feeding)
-Left arm:  pick spoon → scoop → feed (3.5s hold) → return
-Right arm: release bowl → return to home
+```bash
+python3 b2_evaluator.py \
+  --episode /path/to/episode_observations.json \
+  --spec /path/to/organizer_confirmed_spec.json
 ```
 
-### 2. Safety Monitoring (ISO/TS 15066)
-Real-time force monitoring with 140N head/face threshold (most conservative ISO/TS 15066 limit).
-- Force check every 0.5s during feeding hold
-- On violation: immediate motion halt + stage abort
-- Peak force reported in all stage results
-- Verified: peak_force = 0.0N across all stages
+`config/evaluation_spec.example.json` is explicitly unconfirmed and must not be
+used as official evidence.
 
-### 3. Closed-Loop Navigation
-Odometry-based position correction loop with 3 attempts per navigation target.
-- Subscribes to `/isaac/odom` for ground truth
-- Falls back to dead reckoning if odom unavailable
-- Verified: nav correction delta ≈ 0 (accurate positioning)
+## Container
 
-### 4. YOLO Vision Detection
-Replaces hardcoded coordinates with real-time object detection from Isaac Sim camera.
-- YOLOv8n (ultralytics) with CLAHE preprocessing
-- Pixel-to-world coordinate conversion via camera intrinsics
-- Anti-teleport safety: rejects jumps >30cm
-- Detects: plate, bowl, spoon, tray, cup
+Build from this directory:
 
-### 5. Local LLM Planning (Optional)
-Qwen2.5-3B-Instruct-Q4_K_M GGUF model running locally via llama-cpp-python.
-- 0.2-0.3s inference per call (GPU full-layer offload)
-- Structured JSON output with schema validation
-- 5s timeout with automatic fallback to hardcoded
-- LLM decides: which arm to use, approach direction, retry strategy
-
-### 6. Diffusion Policy Framework (Optional)
-Diffusion-style trajectory generation with simulated denoising.
-- IK target as diffusion "goal"
-- Multi-step denoising with smoothing
-- Trajectory validation (joint limits, continuity)
-- Falls back to IK on validation failure
-
-### 7. 4-Level Fallback Chain (hybrid mode)
-```
-L1: LLM plan + Diffusion execute  ← preferred
-L2: Hardcoded plan + Diffusion execute
-L3: LLM plan + IK execute
-L4: Hardcoded plan + IK execute  ← final fallback (100% reliable)
-```
-Verified: 5/5 forced LLM timeouts → all gracefully degrade → all pass.
-
-## ROS2 Topic Interface
-
-| Topic | Type | Description |
-|---|---|---|
-| `/isaac/left_joint_commands` | `sensor_msgs/JointState` | Left arm 7-DOF joint targets |
-| `/isaac/right_joint_commands` | `sensor_msgs/JointState` | Right arm 7-DOF joint targets |
-| `/isaac/left_robotiq_joint_commands` | `sensor_msgs/JointState` | Left gripper (0=closed, 1=open) |
-| `/isaac/right_robotiq_joint_commands` | `sensor_msgs/JointState` | Right gripper (0=closed, 1=open) |
-| `/pedal/state` | `std_msgs/String` | Mobile base (FWD/BACK/A/B) |
-| `/vision/object_positions` | `sensor_msgs/JointState` | YOLO detected object positions |
-| `/isaac/odom` | `nav_msgs/Odometry` | Base odometry (ground truth) |
-| `/isaac/force_torque` | `sensor_msgs/JointState` | End-effector force/torque |
-
-## Environment Verification (2026-08-23)
-
-### Isaac Sim 5.1.0 (RTX 4090, headless)
-
-```
-[12.043s] Simulation App Startup Complete
-[12.058s] [ext: isaacsim.ros2.bridge-4.12.4] startup
-[12.143s] rclpy loaded
-Task 3 ROS bridge started (gripper=robotiq)
-ROS2 topics: 29 active
-Browser Controller: HTTP 200 on port 8090
-YOLO detects: plate2, bowl2, spoon2, simple_tray, cup
+```bash
+docker build -t ebim-task3-b2 .
 ```
 
-### MuJoCo 3.12.0
+That default is the lightweight controller image for external perception. To
+package the internal detector dependencies, build explicitly (and provide the
+custom checkpoint at build time or mount it at runtime):
 
-```
-scene_100.xml: OK — bodies=223, geoms=884, meshes=247, textures=20, cams=4
-scene_300.xml: OK — bodies=423, geoms=1284, meshes=247, textures=20, cams=4
-Simulation smoke test: 200 steps OK, scale_weight_kg = 2.7468
-```
-
-### Grading unit tests: 35/35 PASSED
-
-```
-[PASS] stage1 score counts dining objects
-[PASS] smooth feed path accepted
-[PASS] feed caps score at four
-[PASS] feed hold passes at exactly three seconds
-[PASS] bean recovery 100 percent
-[PASS] bean recovery 90 percent
-[PASS] bean recovery 80 percent
-[PASS] stage4 counts overlap and tabletop z
-9 task3 all grading tests passed.
+```bash
+docker build --build-arg INSTALL_INTERNAL_VISION=1 -t ebim-task3-b2:vision .
 ```
 
-### Autonomous four-stage run (hardcoded mode)
+Connect the container to the real robot ROS 2 network. The image defaults to
+the confirmed autonomous real-robot workflow:
 
-```
-STAGE_RESULT {'stage': 1, 'status': 'completed', 'score': 5, 'max_score': 5}
-STAGE_RESULT {'stage': 2, 'status': 'completed', 'score': 4, 'max_score': 4,
-  'hold_seconds': 3.5, 'bimanual': True, 'peak_force_N': 0.0, 'safe': True}
-STAGE_RESULT {'stage': 3, 'status': 'completed', 'score': 4, 'max_score': 4,
-  'beans_transferred_percent': 100.0, 'peak_force_N': 0.0, 'safe': True}
-STAGE_RESULT {'stage': 4, 'status': 'completed', 'score': 5, 'max_score': 5}
-ALL STAGES COMPLETE - Score: 18/18
+```bash
+docker run --rm --network host --ipc host ebim-task3-b2
 ```
 
-### LLM mode verification
+For Isaac development, override `ROBOT_MODE=sim` and `WORKFLOW=full_task3`.
 
-```
-LLM planning: 5/5 calls succeeded (0.2-0.3s each)
-LLM mode score: 18/18
-```
+## Trajectory and interface integration record
 
-### Hybrid fallback verification (forced timeouts)
+The released trajectories and organizer topic inventory were handled as follows:
 
-```
-POLICY_TIMEOUT=0.05s → 5/5 LLM timeouts → 5/5 hardcoded fallbacks → Stage 1: 5/5
-Fallback chain verified: all failures gracefully degrade without affecting score
-```
+1. Record its checksum and inspect schema, clocks, frames, action units, joint
+   order, gripper convention, camera calibration, and reset semantics.
+2. Update `config/robot_io.json` and confirm the documented command/state types.
+3. Replay without motion, then run sensor-drop, stale-detection, force-limit,
+   empty-spoon, failed-grasp, failed-place, and unknown-bean fault cases.
+4. Produce an independent observation export and score it with the confirmed
+   geometry. Do not use `STAGE_RESULT` as ground truth.
+5. Set `confirmed: true` only after the static contract, route and autonomy
+   tests pass; archive checksums with the release package.
 
-## Ground-Truth Pose Usage
+## Validation boundary
 
-**Yes** — this submission uses the simulator's ground-truth object poses as the primary coordinate source. YOLO vision detection is also implemented and runs in parallel for cross-validation and anti-teleport safety checks, but target positions are taken from ground truth for reliable scoring.
-
-## Contact
-
-- Team: world model
-- Email: 1373851641@qq.com
+The policy, route, official topic contract, autonomy guard, detector and offline
+tests are packaged. Isaac validates the base/odometry command chain but does not
+publish the real dual-LiDAR streams, so final sensor-level and manipulation
+validation necessarily occurs on the organizer's Mobile FR3 Duo. Runtime checks
+fail closed on missing or stale input and never replace it with hidden truth.

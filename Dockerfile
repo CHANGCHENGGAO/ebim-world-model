@@ -1,61 +1,57 @@
-FROM nvcr.io/nvidia/isaac-sim:5.1.0
+FROM ros:jazzy-ros-base
 
-LABEL maintainer="EBiM Task3 Team"
-LABEL description="EBiM Competition Task 3 - Assisted Living & Feeding"
+LABEL maintainer="EBiM Task 3 Team"
+LABEL description="Phase II B2 policy-only container; connects to external ROS2 sim/robot topics"
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV ROS_DISTRO=jazzy
-ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-ENV FASTDDS_BUILTIN_TRANSPORTS=UDPv4
-ENV DISPLAY=:20
-ENV QT_X11_NO_MITSHM=1
+ARG INSTALL_INTERNAL_VISION=1
+ARG TORCH_VERSION=2.5.1
+ARG TORCHVISION_VERSION=0.20.1
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    ROS_DISTRO=jazzy \
+    RMW_IMPLEMENTATION=rmw_fastrtps_cpp \
+    FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
+    ROBOT_MODE=real \
+    WORKFLOW=onsite_bowl_cup \
+    POLICY_MODE=closed_loop \
+    SENSOR_TIMEOUT=30 \
+    SENSOR_MAX_AGE=1.0 \
+    DETECTION_MAX_AGE=3.0 \
+    FINE_DETECTION_MAX_AGE=0.8 \
+    VISION_REACQUIRE_TIMEOUT=12.0 \
+    VISION_HEARTBEAT_MAX_AGE=3.0 \
+    VISION_PERIOD_SECONDS=0.5 \
+    VISION_BACKEND=internal \
+    VISION_MODEL_PATH=/workspace/submission/models/ebim_task3.pt \
+    ROBOT_IO_CONFIG=/workspace/submission/config/robot_io.json \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    gnupg2 \
-    lsb-release \
-    python3-pip \
-    git \
-    wget \
-    vim \
+      ros-jazzy-sensor-msgs \
+      ros-jazzy-std-msgs \
+      ros-jazzy-geometry-msgs \
+      ros-jazzy-nav-msgs \
+      ros-jazzy-tf2-ros \
+      python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ros-jazzy-ros-base \
-    ros-jazzy-sensor-msgs \
-    ros-jazzy-std-msgs \
-    ros-jazzy-geometry-msgs \
-    python3-flask \
-    python3-numpy \
-    python3-scipy \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /workspace/submission
 
-RUN pip3 install --no-cache-dir \
-    flask \
-    flask-socketio \
-    numpy \
-    scipy \
-    matplotlib
+COPY requirements.txt requirements-vision.txt ./
+RUN pip3 install --break-system-packages --no-cache-dir -r requirements.txt && \
+    if [ "$INSTALL_INTERNAL_VISION" = "1" ]; then \
+      pip3 install --break-system-packages --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cpu \
+        "torch==${TORCH_VERSION}" "torchvision==${TORCHVISION_VERSION}" && \
+      pip3 install --break-system-packages --no-cache-dir -r requirements-vision.txt; \
+    fi
 
-# Optional: llama-cpp-python for local LLM inference (commented out by default
-# to keep image small; uncomment if LLM policy is needed).
-# Requires ~2GB additional disk space + model file.
-# RUN pip3 install --no-cache-dir llama-cpp-python
-
-WORKDIR /workspace
-
-COPY . /workspace/benchmark/
-
-ENV LD_LIBRARY_PATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/lib:${LD_LIBRARY_PATH}
-ENV PYTHONPATH=/isaac-sim/exts/isaacsim.ros2.bridge/jazzy/rclpy:/workspace/benchmark/task1_isaacsim/scripts:/workspace/benchmark/task1_isaacsim/services/browser_controller:/workspace/benchmark/scripts/scenes:/workspace/benchmark/scripts/common:/workspace/benchmark/scripts/evaluation/task3:${PYTHONPATH}
-
-RUN chmod +x /workspace/benchmark/task3_isaacsim/scripts/run_isaacsim_teleop.sh \
-    /workspace/benchmark/task3_isaacsim/scripts/run_helper_containers.sh
-
+COPY autonomy_guard.py b2_contract.py b2_evaluator.py task3_autonomous.py vision_callback.py yolo_detector.py navigation_safety.py table_leg_navigation.py ./
+COPY config ./config
+COPY models ./models
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
 
-EXPOSE 8090
+RUN chmod +x /entrypoint.sh autonomy_guard.py b2_contract.py task3_autonomous.py vision_callback.py yolo_detector.py navigation_safety.py table_leg_navigation.py
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["--gripper", "robotiq", "--headless"]

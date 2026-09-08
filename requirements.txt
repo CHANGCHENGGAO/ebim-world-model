@@ -1,0 +1,3 @@
+# Runtime dependencies are pinned for reproducible image builds.
+# Deterministic controller runtime. Internal vision has a separate opt-in layer.
+numpy==1.26.4

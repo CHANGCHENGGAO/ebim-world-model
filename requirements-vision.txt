@@ -1,0 +1,5 @@
+# Optional internal detector runtime; enabled with INSTALL_INTERNAL_VISION=1.
+# Torch/torchvision are pinned and installed from the CPU wheel index in the
+# Dockerfile first, preventing pip from pulling several GB of CUDA 13 packages.
+opencv-python-headless==4.10.0.84
+ultralytics==8.3.0

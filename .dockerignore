@@ -8,3 +8,14 @@ __pycache__
 docs/
 *.log
 .trae-cn/
+test_output/
+recordings/
+camera_diagnostic.py
+demo_recorder.py
+record_*.py
+run_record.sh
+deploy_test_recording.sh
+scene_room_record.py
+verify_streaming.sh
+WORK_HANDOFF.md
+Technical_Report_World_model.md

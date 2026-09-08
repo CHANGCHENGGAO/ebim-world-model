@@ -1,0 +1,11 @@
+{
+  "/isaac/left_joint_states": "sensor_msgs/msg/JointState",
+  "/isaac/right_joint_states": "sensor_msgs/msg/JointState",
+  "/isaac/left_robotiq_joint_states": "sensor_msgs/msg/JointState",
+  "/isaac/right_robotiq_joint_states": "sensor_msgs/msg/JointState",
+  "/isaac/left_joint_commands": "sensor_msgs/msg/JointState",
+  "/isaac/right_joint_commands": "sensor_msgs/msg/JointState",
+  "/isaac/left_robotiq_joint_commands": "sensor_msgs/msg/JointState",
+  "/isaac/right_robotiq_joint_commands": "sensor_msgs/msg/JointState",
+  "/pedal/state": "std_msgs/msg/String"
+}
