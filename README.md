@@ -164,25 +164,27 @@ used as official evidence.
 
 ## Container
 
-Build from this directory:
+Build the final self-contained policy image from this directory. Internal YOLO
+perception is included by default; the operator does not need to start a
+separate perception process:
 
 ```bash
-docker build -t ebim-task3-b2 .
+docker build --build-arg INSTALL_INTERNAL_VISION=1 -t ebim-task3-b2:phase2 .
 ```
 
-That default is the lightweight controller image for external perception. To
-package the internal detector dependencies, build explicitly (and provide the
-custom checkpoint at build time or mount it at runtime):
+For controller-only development against an already running external perception
+publisher, the detector dependencies may be omitted explicitly. This is not the
+official Phase II launch path:
 
 ```bash
-docker build --build-arg INSTALL_INTERNAL_VISION=1 -t ebim-task3-b2:vision .
+docker build --build-arg INSTALL_INTERNAL_VISION=0 -t ebim-task3-b2:controller .
 ```
 
 Connect the container to the real robot ROS 2 network. The image defaults to
 the confirmed autonomous real-robot workflow:
 
 ```bash
-docker run --rm --network host --ipc host ebim-task3-b2
+docker run --rm --network host --ipc host ebim-task3-b2:phase2
 ```
 
 For Isaac development, override `ROBOT_MODE=sim` and `WORKFLOW=full_task3`.
