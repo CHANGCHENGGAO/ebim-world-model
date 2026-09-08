@@ -12,7 +12,12 @@ WORKFLOW="${WORKFLOW:-onsite_bowl_cup}"
 AUTONOMOUS_ONLY="${AUTONOMOUS_ONLY:-1}"
 SENSOR_TIMEOUT="${SENSOR_TIMEOUT:-30}"
 ROBOT_IO_CONFIG="${ROBOT_IO_CONFIG:-/workspace/submission/config/robot_io.json}"
-VISION_BACKEND="${VISION_BACKEND:-auto}"
+# The published real-robot topic inventory has RGB images but no registered
+# depth/CameraInfo stream.  Do not start the RGB-D adapter by default: it would
+# exit before the base can leave its reset pose.  A validated external 3-D
+# adapter may be selected explicitly with VISION_BACKEND=external; internal is
+# reserved for a contract that declares RGB-D support.
+VISION_BACKEND="${VISION_BACKEND:-external}"
 ALLOW_UNCONFIRMED_IO="${ALLOW_UNCONFIRMED_IO:-0}"
 VISION_PID=""
 

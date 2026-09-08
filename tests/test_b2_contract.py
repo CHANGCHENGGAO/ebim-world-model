@@ -29,7 +29,9 @@ class ContractTests(unittest.TestCase):
         for mode in ("sim", "real"):
             contract = load_contract(ROOT / "config" / "robot_io.json", mode)
             topics = required_topics(contract)
-            self.assertEqual(len(topics), 8 if mode == "sim" else 10)
+            # Real base entry must not be blocked by a 3-D perception publisher:
+            # the released interface advertises RGB but no depth/CameraInfo.
+            self.assertEqual(len(topics), 8 if mode == "sim" else 9)
             self.assertEqual(len(set(topics)), len(topics))
             self.assertEqual(len(contract["nav_targets"]["kitchen"]), 3)
             self.assertGreater(contract["limits"]["force_stop_threshold_n"], 0)
@@ -60,6 +62,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn("head_depth", sim["topics"])
         self.assertFalse(real["vision_3d_available"])
         self.assertNotIn("head_camera_info", real["topics"])
+        self.assertNotIn("vision_objects", real["required_topic_keys"])
 
     def test_sim_commands_match_the_official_shared_bridge_contract(self):
         sim = load_contract(ROOT / "config" / "robot_io.json", "sim")

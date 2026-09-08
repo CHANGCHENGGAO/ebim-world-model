@@ -182,12 +182,12 @@
         "left_wrench",
         "right_wrench",
         "odom",
-        "vision_objects",
         "front_lidar",
         "rear_lidar"
       ],
       "optional_topic_keys": [
         "force_torque",
+        "vision_objects",
         "vision_beans"
       ],
       "static_required_topic_keys": [],

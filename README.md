@@ -164,20 +164,23 @@ used as official evidence.
 
 ## Container
 
-Build the final self-contained policy image from this directory. Internal YOLO
-perception is included by default; the operator does not need to start a
-separate perception process:
+Build the autonomous controller image from this directory. The published real
+robot interface contains RGB but no registered depth or camera intrinsics, so
+the safe default is `VISION_BACKEND=external`: navigation can leave the reset
+pose without waiting for an unavailable RGB-D node. A validated external 3-D
+perception adapter is required before any vision-guided grasp/place action can
+be attempted:
 
 ```bash
-docker build --build-arg INSTALL_INTERNAL_VISION=1 -t ebim-task3-b2:phase2 .
+docker build --build-arg INSTALL_INTERNAL_VISION=0 -t ebim-task3-b2:phase2 .
 ```
 
-For controller-only development against an already running external perception
-publisher, the detector dependencies may be omitted explicitly. This is not the
-official Phase II launch path:
+The optional RGB-D YOLO adapter can be packaged only for a robot contract that
+actually supplies synchronized depth and camera calibration; it is not valid
+for the currently documented real-robot contract:
 
 ```bash
-docker build --build-arg INSTALL_INTERNAL_VISION=0 -t ebim-task3-b2:controller .
+docker build --build-arg INSTALL_INTERNAL_VISION=1 -t ebim-task3-b2:rgbd .
 ```
 
 Connect the container to the real robot ROS 2 network. The image defaults to

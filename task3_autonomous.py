@@ -783,22 +783,22 @@ class Task3Controller(Node):
             pair = self._table_leg_pair
             age = (time.monotonic() - self._table_leg_received_at
                    if self._table_leg_received_at is not None else float("inf"))
-            if pair is None or age > 0.50:
-                self._recoverable_nav_reason = "narrow passage table-leg pair missing or stale"
-                return False
-            route = self.io.onsite_bowl_cup_route
-            assessment = stable_narrow_passage_assessment(
-                tuple(self._table_leg_history),
-                nominal_side_clearance_m=route.narrow_nominal_side_clearance_m,
-                minimum_side_clearance_m=route.narrow_minimum_side_clearance_m,
-                center_tolerance_m=route.narrow_center_tolerance_m,
-            )
-            if assessment is None:
-                self._recoverable_nav_reason = (
-                    "narrow passage needs 3 stable centred LaserScan frames")
-                return False
-            self._recoverable_nav_reason = None
-            return True
+            # Table legs are encountered near the end of this leg, not at the
+            # doorway entrance.  Treat their pair as an *additional* centring
+            # observation when it is actually visible, rather than making its
+            # absence a precondition for entering the kitchen.  The normal
+            # front LaserScan corridor check below remains mandatory.
+            if pair is not None and age <= 0.50:
+                route = self.io.onsite_bowl_cup_route
+                assessment = stable_narrow_passage_assessment(
+                    tuple(self._table_leg_history),
+                    nominal_side_clearance_m=route.narrow_nominal_side_clearance_m,
+                    minimum_side_clearance_m=route.narrow_minimum_side_clearance_m,
+                    center_tolerance_m=route.narrow_center_tolerance_m,
+                )
+                if assessment is not None:
+                    self._recoverable_nav_reason = None
+                    return True
         sectors = {
             "FWD": (("front_lidar", "forward"),),
             "BACK": (("rear_lidar", "back"),),
