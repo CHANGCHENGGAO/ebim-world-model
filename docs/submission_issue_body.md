@@ -30,14 +30,14 @@ Use the Member 1 email from the team's registration record.
 
 ## Pinned commit SHA
 
-`70c744e1a92cf138661ab4b90e94df0a76c950b7`
+`ca96d35c060fc21b7ae779ac6fb373a2c071e6f3`
 
 ## Build and run commands
 
 ```bash
 git clone https://github.com/CHANGCHENGGAO/ebim-world-model.git
 cd ebim-world-model
-git checkout 70c744e1a92cf138661ab4b90e94df0a76c950b7
+git checkout ca96d35c060fc21b7ae779ac6fb373a2c071e6f3
 docker build --build-arg INSTALL_INTERNAL_VISION=0 -t ebim-task3-b2:phase2 .
 docker run --rm --network host --ipc host ebim-task3-b2:phase2
 ```

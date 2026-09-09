@@ -8,7 +8,8 @@ export PYTHONPATH="/workspace/submission:${PYTHONPATH:-}"
 
 ROBOT_MODE="${ROBOT_MODE:-real}"
 POLICY_MODE="${POLICY_MODE:-closed_loop}"
-WORKFLOW="${WORKFLOW:-onsite_bowl_cup}"
+WORKFLOW="${WORKFLOW:-full_task3}"
+SKIP_STAGES="${SKIP_STAGES:-1,2}"
 AUTONOMOUS_ONLY="${AUTONOMOUS_ONLY:-1}"
 SENSOR_TIMEOUT="${SENSOR_TIMEOUT:-30}"
 ROBOT_IO_CONFIG="${ROBOT_IO_CONFIG:-/workspace/submission/config/robot_io.json}"
@@ -60,7 +61,7 @@ python3 /workspace/submission/b2_contract.py "${CONTRACT_ARGS[@]}" >/tmp/ebim_co
 
 echo "============================================"
 echo "  EBiM Task 3 — B2 policy container"
-echo "  ROBOT_MODE=$ROBOT_MODE POLICY_MODE=$POLICY_MODE WORKFLOW=$WORKFLOW"
+echo "  ROBOT_MODE=$ROBOT_MODE POLICY_MODE=$POLICY_MODE WORKFLOW=$WORKFLOW SKIP_STAGES=$SKIP_STAGES"
 echo "  VISION_BACKEND=$VISION_BACKEND"
 echo "  ROBOT_IO_CONFIG=$ROBOT_IO_CONFIG"
 echo "============================================"
@@ -108,6 +109,7 @@ echo "[controller] all required topics discovered; starting policy"
 set +e
 python3 /workspace/submission/task3_autonomous.py \
     --stage "${STAGE:-all}" \
+    --skip-stages "$SKIP_STAGES" \
     --workflow "$WORKFLOW" \
     --policy "$POLICY_MODE" \
     --robot-mode "$ROBOT_MODE" \
