@@ -54,6 +54,47 @@ class NarrowPassageAssessment:
     safe: bool
 
 
+@dataclass(frozen=True)
+class DoorwayCenteringCommand:
+    """A bounded base-frame lateral correction inferred from two side ranges.
+
+    Positive ``strafe_m`` means move left in the documented TMR base frame;
+    negative means move right.  This deliberately uses relative range balance,
+    not a site-specific world/map coordinate.
+    """
+
+    left_range_m: float
+    right_range_m: float
+    center_error_m: float
+    strafe_m: float
+    centered: bool
+
+
+def doorway_centering_command(
+    left_range_m: float, right_range_m: float, *, center_tolerance_m: float = 0.02,
+    max_strafe_step_m: float = 0.04,
+) -> DoorwayCenteringCommand:
+    """Return one conservative correction from balanced left/right returns.
+
+    If the left side is nearer than the right, the base is left of the passage
+    centre and the returned command is negative (move right).  The correction
+    is capped so every move is followed by a fresh scan.
+    """
+    for value, label in ((left_range_m, "left_range_m"),
+                         (right_range_m, "right_range_m")):
+        if not math.isfinite(value) or value <= 0.0:
+            raise ValueError(f"{label} must be a finite positive range")
+    if center_tolerance_m <= 0.0 or max_strafe_step_m <= 0.0:
+        raise ValueError("centering tolerance and maximum step must be positive")
+    error = (float(left_range_m) - float(right_range_m)) / 2.0
+    centered = abs(error) <= center_tolerance_m
+    return DoorwayCenteringCommand(
+        float(left_range_m), float(right_range_m), error,
+        0.0 if centered else max(-max_strafe_step_m, min(max_strafe_step_m, error)),
+        centered,
+    )
+
+
 def assess_narrow_passage(
     pair: TableLegPair, *, nominal_side_clearance_m: float = 0.05,
     minimum_side_clearance_m: float = 0.02, center_tolerance_m: float = 0.02,

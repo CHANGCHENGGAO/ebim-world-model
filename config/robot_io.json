@@ -152,7 +152,17 @@
           "leg_separation_min_m": 0.30,
           "leg_separation_max_m": 1.40,
           "max_leg_depth_difference_m": 0.15,
-          "max_leg_cluster_diameter_m": 0.16
+          "max_leg_cluster_diameter_m": 0.16,
+          "doorway_centering": {
+            "enabled": true,
+            "required_frames": 3,
+            "attempts": 15,
+            "observation_wait_seconds": 0.25,
+            "maximum_range_spread_m": 0.03,
+            "center_tolerance_m": 0.02,
+            "max_strafe_step_m": 0.04,
+            "note": "LiDAR-only relative centering before the narrow measured route. If no stable doorway side returns exist, the controller automatically continues with start_to_kitchen (Shanghai measured fallback); hard range/force stops still apply."
+          }
         }
       },
       "gripper_uses_float": true,

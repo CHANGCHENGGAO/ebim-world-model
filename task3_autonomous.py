@@ -40,7 +40,8 @@ from navigation_safety import (
     tapered_navigation_speed, wrap_degrees,
 )
 from table_leg_navigation import (
-    detect_table_legs_from_scan, stable_narrow_passage_assessment,
+    detect_table_legs_from_scan, doorway_centering_command,
+    stable_narrow_passage_assessment,
 )
 
 
@@ -538,6 +539,8 @@ class Task3Controller(Node):
         self._table_leg_pair = None
         self._table_leg_received_at = None
         self._table_leg_history = deque(maxlen=5)
+        self._doorway_range_history = deque(maxlen=8)
+        self._real_start_to_kitchen_completed = False
         if LaserScan is not None:
             self._front_lidar_sub = self.create_subscription(
                 LaserScan, self.io.front_lidar,
@@ -878,6 +881,11 @@ class Task3Controller(Node):
         primary = "forward" if sensor_key == "front_lidar" else "back"
         self._lidar_min_range[sensor_key] = self._lidar_sector_range[(sensor_key, primary)]
         self._mark_sensor(sensor_key)
+        if sensor_key == "front_lidar":
+            left = self._lidar_sector_range.get(("front_lidar", "left"))
+            right = self._lidar_sector_range.get(("front_lidar", "right"))
+            if left is not None and right is not None:
+                self._doorway_range_history.append((time.monotonic(), left, right))
         if sensor_key != "front_lidar" or not self.io.table_leg_tracking.get("enabled", False):
             return
         try:
@@ -990,6 +998,59 @@ class Task3Controller(Node):
         self._enter_safe_stop(
             f"navigation recovery exhausted after {attempts} attempts: "
             f"{self._recoverable_nav_reason or 'clearance unavailable'}")
+        return False
+
+    def _autonomous_doorway_centering(self):
+        """Try LiDAR-only doorway centering before the measured fallback leg.
+
+        This is deliberately best-effort.  It does not substitute an invented
+        map coordinate: after bounded attempts with no stable side returns, the
+        caller continues with the operator-measured Shanghai relative route,
+        whose ordinary LiDAR/force safety gates remain mandatory.
+        """
+        if self.robot_mode != "real":
+            return False
+        raw = self.io.onsite_bowl_cup_route
+        config = dict(self.table_leg_tracking.get("doorway_centering", {}))
+        if not config.get("enabled", True):
+            return False
+        required_frames = int(config.get("required_frames", 3))
+        attempts = int(config.get("attempts", raw.recovery_attempts))
+        tolerance = float(config.get("center_tolerance_m", raw.narrow_center_tolerance_m))
+        max_step = float(config.get("max_strafe_step_m", 0.04))
+        observation_wait = float(config.get("observation_wait_seconds", 0.25))
+        max_spread = float(config.get("maximum_range_spread_m", 0.03))
+        for attempt in range(1, attempts + 1):
+            recent = tuple(self._doorway_range_history)[-required_frames:]
+            if len(recent) >= required_frames:
+                left_values = [sample[1] for sample in recent]
+                right_values = [sample[2] for sample in recent]
+                if (max(left_values) - min(left_values) <= max_spread and
+                        max(right_values) - min(right_values) <= max_spread):
+                    command = doorway_centering_command(
+                        sum(left_values) / len(left_values),
+                        sum(right_values) / len(right_values),
+                        center_tolerance_m=tolerance, max_strafe_step_m=max_step)
+                    if command.centered:
+                        self.get_logger().info(
+                            f"[DoorCenter] stable and centred; error={command.center_error_m:.3f}m")
+                        return True
+                    self.get_logger().info(
+                        f"[DoorCenter] attempt {attempt}/{attempts}: error="
+                        f"{command.center_error_m:.3f}m, autonomous strafe={command.strafe_m:.3f}m")
+                    # A/B remains guarded by both front and rear LiDAR sectors.
+                    if self.move_base_strafe(command.strafe_m, speed=0.03):
+                        self._doorway_range_history.clear()
+                        continue
+                    self.get_logger().warn(
+                        "[DoorCenter] correction is not clearance-safe; using measured fallback route")
+                    return False
+            self.get_logger().info(
+                f"[DoorCenter] observing doorway {attempt}/{attempts} for stable side ranges")
+            if not self._interruptible_sleep(observation_wait):
+                return False
+        self.get_logger().warn(
+            "[DoorCenter] no stable doorway observation; using measured Shanghai fallback route")
         return False
 
     def _vision_cb(self, msg):
@@ -1567,6 +1628,23 @@ class Task3Controller(Node):
             )
             self._spine_to_door()
         try:
+            # The real task begins from a repeatable pose but the doorway and
+            # table placement vary between laboratories.  Use LiDAR centering
+            # plus the measured relative route on the *first* kitchen entry;
+            # never replay it once the base has already reached the kitchen.
+            route = self.io.onsite_bowl_cup_route
+            if (self.robot_mode == "real" and target_label == "kitchen" and
+                    route.ready and not self._real_start_to_kitchen_completed):
+                self.get_logger().info(
+                    "  Using real LiDAR-centred start-to-kitchen route "
+                    "(measured Shanghai motions are autonomous fallback only)")
+                if self._run_relative_leg(route.start_to_kitchen,
+                                          label="real_start_to_kitchen"):
+                    self._real_start_to_kitchen_completed = True
+                    return True
+                self.get_logger().error("Real start-to-kitchen route failed")
+                return False
+
             # Use waypoint path FIRST for known obstacle targets (e.g. kitchen counter at y~1.3)
             if target_label in self.NAV_WAYPOINTS:
                 waypoints = self.NAV_WAYPOINTS[target_label]
@@ -1627,6 +1705,8 @@ class Task3Controller(Node):
             f"delta={signed_distance:.3f} speed={motion.speed:.3f}"
         )
         try:
+            if motion.narrow_passage and not reverse:
+                self._autonomous_doorway_centering()
             if motion.axis == "forward":
                 return self.move_base_forward(signed_distance, speed=motion.speed)
             if motion.axis == "strafe":
@@ -1668,12 +1748,13 @@ class Task3Controller(Node):
         self._spine_to_stage34()
         return True
 
-    def onsite_bowl_cup_workflow(self):
-        """Limited autonomous route for onsite calibration, never an official score.
+    def onsite_bowl_cup_workflow(self, *, official_execution=False):
+        """Autonomous bowl/cup carry route used by the reduced Task-3 policy.
 
-        This deliberately excludes tray handling and Stage 2 feeding.  It is a
-        separate workflow because that reduced sequence cannot replace the
-        official four-stage Task 3 submission policy.
+        It deliberately excludes tray handling and Stage 2 feeding.  Official
+        scoring remains the organizer's scene observation, not this result
+        dictionary; ``official_execution`` only records that the route was
+        invoked by the submitted reduced Task-3 policy rather than a calibration run.
         """
         self.get_logger().info("=== Onsite bowl/cup navigation workflow ===")
         route: OnsiteBowlCupRoute = self.io.onsite_bowl_cup_route
@@ -1693,9 +1774,8 @@ class Task3Controller(Node):
             return fail("onsite_bowl_cup_route_disabled_or_uncalibrated")
         if not self.open_gripper("both"):
             return fail("cannot_open_grippers_from_measured_feedback")
-        self._spine_to_door()
-        if not self._run_relative_leg(route.start_to_kitchen, label="start_to_kitchen"):
-            return fail("navigation_to_kitchen_failed")
+        # This is intentionally a non-scoring Stage-1 *pickup* step: the
+        # requested simplified strategy carries only the bowl and cup onward.
         self._spine_to_stage1()
 
         bowl_pose = self._get_vision_pose("bowl", timeout=5.0)
@@ -1711,11 +1791,18 @@ class Task3Controller(Node):
         if not self.carry_position("both"):
             return fail("carry_pose_failed")
 
+        # Carry the two verified grasps from the Stage-1 table to the kitchen
+        # work area.  Doorway LiDAR centering and Shanghai-route fallback are
+        # both executed inside the relative leg; no human intervention occurs.
+        self._spine_to_door()
+        if not self._run_relative_leg(route.start_to_kitchen, label="stage1_to_kitchen"):
+            return fail("navigation_to_kitchen_failed")
+
         # The v3 recording is from this real Mobile FR3 Duo and covers the
         # reliable post-grasp disposal sequence.  It replaces the old invented
         # base detour and unvalidated bean-count gate.  Scoring remains solely
         # the organizer's observation, never this controller's return value.
-        if os.environ.get("STAGE3_DEMO_ENABLED", "0") == "1":
+        if os.environ.get("STAGE3_DEMO_ENABLED", "1") == "1":
             if not self.replay_v3_disposal_after_verified_grasp():
                 return fail("v3_demo_disposal_failed")
         else:
@@ -1734,8 +1821,8 @@ class Task3Controller(Node):
             return fail("arm_home_pose_failed")
 
         return {
-            "stage": "onsite_bowl_cup", "status": "completed", "score": 0,
-            "max_score": 0, "official_score": False,
+            "stage": "reduced_task3_carry", "status": "completed", "score": 0,
+            "max_score": 0, "official_score": bool(official_execution),
             "demonstration_source": "franka_duo_lerobot_v3/episode_000000",
             "safe": self._safe_stop_reason is None,
         }
@@ -2794,8 +2881,17 @@ def main():
         )
 
     results = []
-    if args.workflow == "onsite_bowl_cup":
-        result = controller.onsite_bowl_cup_workflow()
+    simplified_carry_workflow = (
+        args.workflow == "full_task3" and args.stage == "all" and
+        {1, 2}.issubset({int(s) for s in args.skip_stages.split(",") if s.strip()})
+    )
+    if args.workflow == "onsite_bowl_cup" or simplified_carry_workflow:
+        if simplified_carry_workflow:
+            controller.get_logger().info(
+                "Skip 1/2 policy selected: executing non-scoring Stage-1 bowl/cup pickup, "
+                "carry navigation, then Stage-3/4 disposal")
+        result = controller.onsite_bowl_cup_workflow(
+            official_execution=simplified_carry_workflow)
         results.append(result)
         stages = ["onsite_bowl_cup"]
         print(f"\n{'='*60}")

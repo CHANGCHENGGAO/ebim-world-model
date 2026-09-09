@@ -24,6 +24,7 @@ from table_leg_navigation import (
     desired_leg_range_m,
     desired_leg_midpoint_x_m,
     assess_narrow_passage,
+    doorway_centering_command,
     scan_to_points,
     stable_narrow_passage_assessment,
 )
@@ -31,6 +32,19 @@ from vision_callback import adaptive_gamma, lighting_quality
 
 
 class InnoHubRobustnessTests(unittest.TestCase):
+    def test_doorway_centering_uses_relative_side_ranges(self):
+        # Left side nearer means the base is left of the doorway centre, so
+        # the documented base-frame command must move right (negative strafe).
+        correction = doorway_centering_command(0.50, 0.60)
+        self.assertAlmostEqual(correction.center_error_m, -0.05)
+        self.assertAlmostEqual(correction.strafe_m, -0.04)
+        self.assertFalse(correction.centered)
+        centred = doorway_centering_command(0.505, 0.495)
+        self.assertTrue(centred.centered)
+        self.assertEqual(centred.strafe_m, 0.0)
+        with self.assertRaises(ValueError):
+            doorway_centering_command(float("nan"), 0.50)
+
     def test_table_leg_pair_geometry_and_body_clearance(self):
         left = LegCluster(1.20, 0.42, 0.06, (
             ScanPoint(1.20, 0.39, 1.26), ScanPoint(1.20, 0.45, 1.28)))
