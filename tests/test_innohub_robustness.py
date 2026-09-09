@@ -153,8 +153,9 @@ class InnoHubRobustnessTests(unittest.TestCase):
         config_path = Path(__file__).parents[1] / "config" / "robot_io.json"
         raw = json.loads(config_path.read_text())["modes"]["real"]["onsite_bowl_cup_route"]
         expected = [
-            ("forward", -1.60), ("forward", 1.60), ("strafe", 0.70),
-            ("forward", 1.40), ("rotate", -90.0),
+            ("strafe", 0.70),
+            ("forward", 1.40),
+            ("rotate", -90.0),
         ]
         self.assertEqual(
             [(m["axis"], m["distance"]) for m in raw["dining_transition"]], expected)

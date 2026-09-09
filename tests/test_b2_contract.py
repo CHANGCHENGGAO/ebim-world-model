@@ -36,7 +36,7 @@ class ContractTests(unittest.TestCase):
             topics = required_topics(contract)
             # Real base entry must not be blocked by a 3-D perception publisher:
             # the released interface advertises RGB but no depth/CameraInfo.
-            self.assertEqual(len(topics), 8 if mode == "sim" else 9)
+            self.assertEqual(len(topics), 5 if mode == "sim" else 9)
             self.assertEqual(len(set(topics)), len(topics))
             self.assertEqual(len(contract["nav_targets"]["kitchen"]), 3)
             self.assertGreater(contract["limits"]["force_stop_threshold_n"], 0)
@@ -73,6 +73,14 @@ class ContractTests(unittest.TestCase):
 
     def test_sim_commands_match_the_official_shared_bridge_contract(self):
         sim = load_contract(ROOT / "config" / "robot_io.json", "sim")
+        # The official Task 3 scene publishes odometry only when recording
+        # topics are enabled, but it does not expose simulated WrenchStamped
+        # streams. Object detections also begin only after the robot/camera can
+        # see the kitchen, so none of those may gate initial navigation.
+        self.assertIn("odom", sim["required_topic_keys"])
+        self.assertNotIn("left_wrench", sim["required_topic_keys"])
+        self.assertNotIn("right_wrench", sim["required_topic_keys"])
+        self.assertNotIn("vision_objects", sim["required_topic_keys"])
         topics = sim["topics"]
         self.assertEqual(topics["left_arm_cmd"], "/isaac/left_joint_commands")
         self.assertEqual(topics["right_arm_cmd"], "/isaac/right_joint_commands")
