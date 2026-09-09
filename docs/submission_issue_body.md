@@ -30,22 +30,24 @@ Use the Member 1 email from the team's registration record.
 
 ## Pinned commit SHA
 
-`ca96d35c060fc21b7ae779ac6fb373a2c071e6f3`
+`a0b3518fa081aef669a515ed6e9edf9a0f4f55ce`
 
 ## Build and run commands
 
 ```bash
 git clone https://github.com/CHANGCHENGGAO/ebim-world-model.git
 cd ebim-world-model
-git checkout ca96d35c060fc21b7ae779ac6fb373a2c071e6f3
+git checkout a0b3518fa081aef669a515ed6e9edf9a0f4f55ce
 docker build --build-arg INSTALL_INTERNAL_VISION=0 -t ebim-task3-b2:phase2 .
 docker run --rm --network host --ipc host ebim-task3-b2:phase2
 ```
 
 The image entrypoint waits for the required ROS 2 topics and then launches the
-autonomous `onsite_bowl_cup` workflow in `real` mode. It uses the organizer's
-external 3-D object-position topic when available; no keyboard, pedal, GELLO or
-operator command is accepted during a run.
+autonomous `full_task3` policy in `real` mode, with Stage 1 and Stage 2 skipped:
+Stage 3 drops the whole bowl (beans included) into the recycling bin and Stage 4
+places the cup into the sink. It uses the organizer's external 3-D
+object-position topic when available; no keyboard, pedal, GELLO or operator
+command is accepted during a run.
 
 ## Environment and dependencies
 
@@ -91,12 +93,13 @@ operator command is accepted during a run.
 
 The Phase I technical report (#22) has been replaced by a runnable autonomous
 real-robot policy. We added the official ROS 2 contract, measured base route,
-dual-LiDAR/odometry safety with autonomous recovery, internal YOLO perception
-with the final custom checkpoint, fail-closed sensor freshness checks and a
-reduced reliable Task 3 workflow. The policy carries one cup and one bowl in
-Stage 1, deliberately skips the unreliable feeding action, and performs the
-submitted Stage 3/4 cup placement and bowl/bean disposal sequence. VLA/cloud
-inference is not used.
+dual-LiDAR/odometry safety with autonomous recovery, fail-closed sensor
+freshness checks and a deliberately reduced, reliable Task 3 workflow. The
+policy skips Stage 1 (table setup) and Stage 2 (feeding); it drops the whole
+bowl — beans included — into the recycling bin (Stage 3) and places the cup
+into the sink (Stage 4). Object poses come from the robot-side external 3-D
+perception stream, never from simulator ground truth. VLA/cloud inference is
+not used.
 
 ## Optional supplementary links
 
@@ -111,10 +114,10 @@ robot-side 3-D perception stream, while base and manipulation waypoints are
 measured/pre-taught. There is no motion capture, AprilTag input, simulator
 ground truth, cloud API or operator input during a run.
 
-Stage 2 feeding is intentionally skipped; this is a fixed scoring strategy, not
-an operator-selectable run-time branch. Missing/stale sensors, excessive force
-or unsafe clearance stop motion and trigger bounded autonomous recovery rather
-than requesting human intervention.
+Stage 1 (table setup) and Stage 2 (feeding) are intentionally skipped; this is
+a fixed scoring strategy, not an operator-selectable run-time branch. Missing
+or stale sensors, excessive force or unsafe clearance stop motion and trigger
+bounded autonomous recovery rather than requesting human intervention.
 
 ## Required checkboxes
 

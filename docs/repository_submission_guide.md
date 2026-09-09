@@ -34,9 +34,9 @@ https://github.com/CHANGCHENGGAO/ebim-world-model
 
 ## 字段 5: Did this submission use the simulator's ground-truth object poses?
 
-选择: **Yes — we use the simulator's ground-truth object poses**
+选择: **No — we do not use the simulator's ground-truth object poses**
 
-(注：同时也实现了 YOLO 视觉检测，用于交叉验证和防瞬移安全检查，但主要坐标来源是仿真真值以保证得分可靠性)
+(注：策略在 real 模式下通过外部 3-D 感知话题获取物体坐标，fail-closed；不读取 USD/PhysX 场景真值，也不回退到固定坐标)
 
 ## 字段 6: Submission requirements
 
@@ -56,18 +56,20 @@ Judge evaluation: https://github.com/CHANGCHENGGAO/ebim-world-model/blob/main/do
 ## 字段 8: Notes (optional)
 
 ```
-All four stages run fully autonomously at full score (18/18 development grading, 16/16 official).
+Deliberately reduced, reliable strategy: the policy skips Stage 1 (table setup)
+and Stage 2 (feeding), then runs Stage 3 (drop the whole bowl, beans included,
+into the recycling bin) and Stage 4 (place the cup into the sink). We claim no
+score; final scoring uses the organizer's own evaluation.
 
 Key features:
-• Bimanual coordination — Stage 2: right arm steadies bowl, left arm scoops and feeds
-• ISO/TS 15066 safety monitoring — 140N head force threshold with real-time checking
-• Closed-loop navigation — odometry-corrected with 3-attempt correction loop
-• YOLO vision detection — real-time object detection from Isaac Sim camera
-• Local LLM planning — Qwen2.5-3B GGUF, llama-cpp-python, 0.2-0.3s/call (GPU)
-• Diffusion Policy framework — optional trajectory generation with IK fallback
-• 4-level fallback chain — verified: all AI failures degrade gracefully without score loss
+• ISO/TS 15066 force monitoring — 20 N hard stop, contact detection at 5 N
+• Closed-loop navigation — odometry + LaserScan with 3-attempt correction loop
+• Fail-closed perception — external 3-D object poses, no simulator ground truth
+• Spine height control — 0.80 m for door transit, 0.60 m for Stage 3/4 work
+• Dual-LiDAR safety with autonomous recentre-and-retry recovery
 
-This submission supersedes our earlier Technical Report (Issue #22). The code has been upgraded from a design-phase report to a fully working 18/18 autonomous controller.
+This submission supersedes our earlier Technical Report (Issue #22). The policy
+runs autonomously in real mode with no keyboard, GELLO, pedal or operator input.
 ```
 
 ## 字段 9: Acknowledgement
